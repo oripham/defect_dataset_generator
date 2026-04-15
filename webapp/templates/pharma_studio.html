@@ -1,0 +1,589 @@
+{% extends "base.html" %}
+{% set active = 'pharma' %}
+{% block content %}
+<div class="container-fluid py-3">
+
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="fw-bold mb-0">💊 Pharma Defect Studio</h2>
+    <span class="badge bg-info text-dark px-3 py-2 text-uppercase">Engine: CV (Local)</span>
+  </div>
+
+  <div class="row g-3">
+
+    <!-- ══ LEFT: Controls ══════════════════════════════════════════════════ -->
+    <div class="col-lg-4 col-xl-3 d-flex flex-column gap-3">
+
+      <!-- 1. Product & Defect -->
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-info">
+          1. Product &amp; Defect
+        </div>
+        <div class="card-body py-2">
+          <label class="form-label small fw-semibold">Product</label>
+          <select id="sel-product" class="form-select form-select-sm bg-dark border-secondary text-warning mb-2"
+                  onchange="onProductChange()">
+            <option value="elongated_capsule">Elongated Capsule</option>
+            <option value="round_tablet">Round Tablet</option>
+          </select>
+
+          <label class="form-label small fw-semibold">Defect Class</label>
+          <select id="sel-defect" class="form-select form-select-sm bg-dark border-secondary text-warning"
+                  onchange="onDefectChange()">
+          </select>
+        </div>
+      </div>
+
+      <!-- 2. Input Image -->
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-info">
+          2. Input Image
+        </div>
+        <div class="card-body py-2">
+          <label class="form-label small fw-semibold">OK Image</label>
+          <select id="sel-ok-image" class="form-select form-select-sm bg-dark border-secondary text-light mb-2"
+                  onchange="onOkImageSelect()">
+            <option value="">-- Upload or select --</option>
+          </select>
+
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">Or upload</label>
+            <input type="file" id="upload-ok" class="form-control form-control-sm bg-dark border-secondary text-light"
+                   accept="image/*" onchange="onUploadOk(this)">
+          </div>
+
+          <button class="btn btn-sm btn-outline-primary w-100" onclick="runAutoMask()">
+            🔍 Auto-Detect Mask (Otsu)
+          </button>
+          <div id="mask-status" class="small text-muted mt-1"></div>
+        </div>
+      </div>
+
+      <!-- 3. Parameters -->
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-warning">
+          3. Parameters
+        </div>
+        <div class="card-body py-2">
+
+          <!-- Intensity (all defects) -->
+          <label class="form-label small fw-semibold d-flex justify-content-between">
+            <span>Intensity</span>
+            <span id="val-intensity" class="text-info fw-bold">70%</span>
+          </label>
+          <input type="range" class="form-range mb-3" id="slider-intensity"
+                 min="0" max="100" value="70"
+                 oninput="document.getElementById('val-intensity').textContent=this.value+'%'">
+
+          <!-- Crack-specific params -->
+          <div id="params-crack">
+            <label class="form-label small fw-semibold">Break Type</label>
+            <select id="sel-break-type" class="form-select form-select-sm bg-dark border-secondary text-light mb-2">
+              <option value="straight">Straight cut</option>
+              <option value="corner">Corner chip</option>
+              <option value="curved">Curved break</option>
+              <option value="concave">Concave crescent</option>
+              <option value="zigzag2">Zigzag ×2</option>
+              <option value="zigzag3">Zigzag ×3</option>
+            </select>
+
+            <label class="form-label small fw-semibold d-flex justify-content-between">
+              <span>Depth</span>
+              <span id="val-depth" class="text-info fw-bold">30%</span>
+            </label>
+            <input type="range" class="form-range mb-2" id="slider-depth"
+                   min="10" max="70" value="30"
+                   oninput="document.getElementById('val-depth').textContent=this.value+'%'">
+
+            <label class="form-label small fw-semibold d-flex justify-content-between">
+              <span>Angle</span>
+              <span id="val-angle" class="text-info fw-bold">0°</span>
+            </label>
+            <input type="range" class="form-range mb-2" id="slider-angle"
+                   min="0" max="315" step="45" value="0"
+                   oninput="document.getElementById('val-angle').textContent=this.value+'°'">
+          </div>
+
+          <!-- Hollow-specific params -->
+          <div id="params-hollow" style="display:none">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" id="chk-fixed-region">
+              <label class="form-check-label small" for="chk-fixed-region">Fixed Region (reproducible)</label>
+            </div>
+          </div>
+
+          <!-- Seed -->
+          <label class="form-label small fw-semibold">Seed</label>
+          <div class="input-group input-group-sm mb-2">
+            <input type="number" id="inp-seed" class="form-control bg-dark border-secondary text-light" value="42">
+            <button class="btn btn-outline-secondary" onclick="randomSeed()" title="Random seed">🎲</button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Action buttons -->
+      <button id="btn-preview" class="btn btn-primary fw-bold" onclick="runPreview()">
+        ▶ Preview
+      </button>
+      <button id="btn-batch" class="btn btn-outline-warning fw-bold" onclick="openBatchModal()">
+        ⚡ Batch Generate
+      </button>
+
+    </div><!-- /left -->
+
+    <!-- ══ CENTER: Canvas ═══════════════════════════════════════════════════ -->
+    <div class="col-lg-5 col-xl-6 d-flex flex-column gap-3">
+
+      <!-- 2×2 debug panel -->
+      <div class="card bg-dark-card border-secondary flex-grow-1">
+        <div class="card-header border-secondary bg-transparent fw-bold text-secondary">
+          Preview Panel
+        </div>
+        <div class="card-body p-2">
+          <div class="row g-2">
+            <div class="col-6">
+              <div class="small text-muted mb-1">OK Image</div>
+              <img id="panel-ok" src="" class="img-fluid rounded border border-secondary"
+                   style="min-height:140px;background:#111;width:100%;object-fit:contain"
+                   alt="OK image">
+            </div>
+            <div class="col-6">
+              <div class="small text-muted mb-1">Mask</div>
+              <img id="panel-mask" src="" class="img-fluid rounded border border-secondary"
+                   style="min-height:140px;background:#111;width:100%;object-fit:contain"
+                   alt="Mask">
+            </div>
+            <div class="col-6">
+              <div class="small text-muted mb-1">Result</div>
+              <img id="panel-result" src="" class="img-fluid rounded border border-secondary"
+                   style="min-height:140px;background:#111;width:100%;object-fit:contain"
+                   alt="Result">
+            </div>
+            <div class="col-6">
+              <div class="small text-muted mb-1">Diff ×4</div>
+              <img id="panel-diff" src="" class="img-fluid rounded border border-secondary"
+                   style="min-height:140px;background:#111;width:100%;object-fit:contain"
+                   alt="Diff">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Log -->
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-secondary d-flex justify-content-between">
+          <span>Log</span>
+          <button class="btn btn-sm btn-link text-muted p-0" onclick="clearLog()">Clear</button>
+        </div>
+        <div class="card-body p-0">
+          <pre id="log-box" class="m-0 p-2 small text-success"
+               style="max-height:120px;overflow-y:auto;background:#0d0d0d;border-radius:0 0 .375rem .375rem"></pre>
+        </div>
+      </div>
+
+    </div><!-- /center -->
+
+    <!-- ══ RIGHT: Output ════════════════════════════════════════════════════ -->
+    <div class="col-lg-3 col-xl-3 d-flex flex-column gap-3">
+
+      <!-- QC -->
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-secondary">
+          QC Check
+        </div>
+        <div class="card-body py-2" id="qc-panel">
+          <div class="text-muted small">Run preview first</div>
+        </div>
+      </div>
+
+      <!-- Save / Download -->
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-secondary">
+          Output
+        </div>
+        <div class="card-body py-2 d-flex flex-column gap-2">
+          <button class="btn btn-sm btn-success" id="btn-save" onclick="saveResult()" disabled>
+            💾 Save to results/
+          </button>
+          <button class="btn btn-sm btn-outline-light" id="btn-download" onclick="downloadResult()" disabled>
+            ⬇ Download PNG
+          </button>
+        </div>
+      </div>
+
+      <!-- Recent history strip -->
+      <div class="card bg-dark-card border-secondary flex-grow-1">
+        <div class="card-header border-secondary bg-transparent fw-bold text-secondary">
+          Recent (this session)
+        </div>
+        <div class="card-body p-2">
+          <div id="history-strip" class="d-flex flex-wrap gap-1"></div>
+        </div>
+      </div>
+
+    </div><!-- /right -->
+
+  </div><!-- /row -->
+</div><!-- /container -->
+
+<!-- ── Batch Modal ──────────────────────────────────────────────────────────── -->
+<div class="modal fade" id="batchModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content bg-dark border-secondary text-light">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title">⚡ Batch Generate</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Number of images</label>
+          <input type="number" id="batch-n" class="form-control bg-dark border-secondary text-light"
+                 value="20" min="1" max="500">
+        </div>
+        <div class="mb-3" id="batch-crack-opts">
+          <label class="form-label small fw-semibold">Break types (Crack only)</label>
+          <div class="d-flex flex-wrap gap-2">
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="bc-straight" value="straight" checked>
+              <label class="form-check-label small" for="bc-straight">Straight</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="bc-corner" value="corner" checked>
+              <label class="form-check-label small" for="bc-corner">Corner</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="bc-curved" value="curved" checked>
+              <label class="form-check-label small" for="bc-curved">Curved</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="bc-concave" value="concave" checked>
+              <label class="form-check-label small" for="bc-concave">Concave</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="bc-zigzag2" value="zigzag2" checked>
+              <label class="form-check-label small" for="bc-zigzag2">Zigzag×2</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="bc-zigzag3" value="zigzag3" checked>
+              <label class="form-check-label small" for="bc-zigzag3">Zigzag×3</label></div>
+          </div>
+        </div>
+        <div id="batch-progress-wrap" style="display:none">
+          <div class="progress mb-2" style="height:8px">
+            <div id="batch-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+                 style="width:0%"></div>
+          </div>
+          <div id="batch-status-text" class="small text-muted"></div>
+        </div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-warning fw-bold" id="btn-batch-start" onclick="startBatch()">
+          ⚡ Start
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let _imgB64     = null;   // current OK image base64
+let _maskB64    = null;   // current mask base64
+let _resultB64  = null;   // last result base64
+let _batchJobId = null;
+let _batchTimer = null;
+
+const DEFECT_MAP = {
+  elongated_capsule: [
+    {key:"hollow",    label:"Hollow"},
+    {key:"underfill", label:"Underfill"},
+  ],
+  round_tablet: [
+    {key:"crack", label:"Crack"},
+    {key:"dent",  label:"Dent"},
+  ],
+};
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+document.addEventListener("DOMContentLoaded", () => {
+  onProductChange();
+  loadOkLibrary();
+});
+
+function onProductChange() {
+  const prod = document.getElementById("sel-product").value;
+  const sel  = document.getElementById("sel-defect");
+  sel.innerHTML = "";
+  (DEFECT_MAP[prod] || []).forEach(d => {
+    const o = document.createElement("option");
+    o.value = d.key; o.textContent = d.label;
+    sel.appendChild(o);
+  });
+  onDefectChange();
+  loadOkLibrary();
+}
+
+function onDefectChange() {
+  const defect = document.getElementById("sel-defect").value;
+  document.getElementById("params-crack").style.display  = defect === "crack"  ? "" : "none";
+  document.getElementById("params-hollow").style.display = defect === "hollow" ? "" : "none";
+  const batchOpts = document.getElementById("batch-crack-opts");
+  if (batchOpts) batchOpts.style.display = defect === "crack" ? "" : "none";
+}
+
+// ── OK image library ──────────────────────────────────────────────────────────
+async function loadOkLibrary() {
+  const prod   = document.getElementById("sel-product").value;
+  const defect = document.getElementById("sel-defect").value;
+  try {
+    const resp = await fetch(`/api/pharma/ok-images?product=${prod}&defect=${defect}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const sel  = document.getElementById("sel-ok-image");
+    sel.innerHTML = '<option value="">-- select OK image --</option>';
+    (data.files || []).forEach(f => {
+      const o = document.createElement("option");
+      o.value = f.b64; o.textContent = f.name;
+      sel.appendChild(o);
+    });
+    if (data.files && data.files.length > 0) {
+      sel.value = data.files[0].b64;
+      onOkImageSelect();
+    }
+  } catch(e) { log("Library load error: " + e); }
+}
+
+function onOkImageSelect() {
+  const val = document.getElementById("sel-ok-image").value;
+  if (!val) return;
+  _imgB64  = val;
+  _maskB64 = null;
+  showPanel("panel-ok", val);
+  clearPanels(["panel-mask","panel-result","panel-diff"]);
+  setQC(null);
+  document.getElementById("mask-status").textContent = "";
+  document.getElementById("btn-save").disabled     = true;
+  document.getElementById("btn-download").disabled = true;
+}
+
+function onUploadOk(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const full = e.target.result; // data:image/...;base64,...
+    _imgB64 = full.split(",")[1];
+    showPanel("panel-ok", _imgB64);
+    _maskB64 = null;
+    clearPanels(["panel-mask","panel-result","panel-diff"]);
+    log("Uploaded: " + file.name);
+  };
+  reader.readAsDataURL(file);
+}
+
+// ── Auto mask ─────────────────────────────────────────────────────────────────
+async function runAutoMask() {
+  if (!_imgB64) { alert("Load an OK image first."); return; }
+  document.getElementById("mask-status").textContent = "Detecting…";
+  try {
+    const resp = await fetch("/api/pharma/auto-mask", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({image_b64: _imgB64}),
+    });
+    const data = await resp.json();
+    if (data.error) { log("Mask error: " + data.error); return; }
+    _maskB64 = data.mask_b64;
+    showPanel("panel-mask", _maskB64);
+    document.getElementById("mask-status").textContent =
+      `✅ mask_area=${data.mask_area}px  bbox=${JSON.stringify(data.bbox)}`;
+    log(`Auto-mask: area=${data.mask_area} bbox=${JSON.stringify(data.bbox)}`);
+  } catch(e) { log("Auto-mask error: " + e); }
+}
+
+// ── Preview ───────────────────────────────────────────────────────────────────
+async function runPreview() {
+  if (!_imgB64) { alert("Load an OK image first."); return; }
+  document.getElementById("btn-preview").disabled = true;
+  document.getElementById("btn-preview").textContent = "⏳ Generating…";
+  log("Running preview…");
+
+  const params = buildParams();
+  const body   = {
+    image_b64:   _imgB64,
+    mask_b64:    _maskB64 || null,
+    product:     document.getElementById("sel-product").value,
+    defect_type: document.getElementById("sel-defect").value,
+    params,
+  };
+
+  try {
+    const resp = await fetch("/api/pharma/preview", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (data.error) { log("Error: " + data.error); return; }
+
+    _resultB64 = data.result_image;
+    _maskB64   = data.mask_b64 || _maskB64;
+
+    showPanel("panel-result", data.result_image);
+    showPanel("panel-mask",   _maskB64);
+
+    // Extract diff from debug panel (4th quadrant) or skip
+    if (data.debug_panel) {
+      // Show full debug panel as single image in a modal (optional)
+    }
+
+    setQC(data.qc);
+    log(`Done — engine=${data.engine}  QC=${data.qc?.verdict || "—"}`);
+    addHistory(data.result_image);
+
+    document.getElementById("btn-save").disabled     = false;
+    document.getElementById("btn-download").disabled = false;
+  } catch(e) {
+    log("Preview error: " + e);
+  } finally {
+    document.getElementById("btn-preview").disabled = false;
+    document.getElementById("btn-preview").textContent = "▶ Preview";
+  }
+}
+
+function buildParams() {
+  const defect = document.getElementById("sel-defect").value;
+  const p = {
+    intensity: parseInt(document.getElementById("slider-intensity").value) / 100,
+    seed:      parseInt(document.getElementById("inp-seed").value) || 42,
+  };
+  if (defect === "crack") {
+    p.break_type = document.getElementById("sel-break-type").value;
+    p.depth      = parseInt(document.getElementById("slider-depth").value) / 100;
+    p.angle      = parseFloat(document.getElementById("slider-angle").value);
+  }
+  if (defect === "hollow" || defect === "underfill") {
+    p.fixed_region = document.getElementById("chk-fixed-region").checked;
+  }
+  return p;
+}
+
+// ── Save / Download ───────────────────────────────────────────────────────────
+async function saveResult() {
+  if (!_resultB64) return;
+  const product = document.getElementById("sel-product").value;
+  const defect  = document.getElementById("sel-defect").value;
+  try {
+    const resp = await fetch("/api/pharma/save", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        result_b64: _resultB64,
+        mask_b64:   _maskB64,
+        product, defect,
+        params: buildParams(),
+      }),
+    });
+    const d = await resp.json();
+    log("Saved → " + (d.path || "?"));
+  } catch(e) { log("Save error: " + e); }
+}
+
+function downloadResult() {
+  if (!_resultB64) return;
+  const a = document.createElement("a");
+  a.href     = "data:image/png;base64," + _resultB64;
+  a.download = `${document.getElementById("sel-defect").value}_result.png`;
+  a.click();
+}
+
+// ── Batch ─────────────────────────────────────────────────────────────────────
+function openBatchModal() {
+  new bootstrap.Modal(document.getElementById("batchModal")).show();
+}
+
+async function startBatch() {
+  const product   = document.getElementById("sel-product").value;
+  const defect    = document.getElementById("sel-defect").value;
+  const n_images  = parseInt(document.getElementById("batch-n").value) || 20;
+  const params    = buildParams();
+
+  // Crack break_types from checkboxes
+  const break_types = [];
+  document.querySelectorAll("#batch-crack-opts input[type=checkbox]:checked")
+    .forEach(cb => break_types.push(cb.value));
+
+  document.getElementById("batch-progress-wrap").style.display = "";
+  document.getElementById("btn-batch-start").disabled = true;
+
+  const resp = await fetch("/api/pharma/batch", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({product, defect_type: defect, n_images, params, break_types}),
+  });
+  const d = await resp.json();
+  if (d.error) { log("Batch error: " + d.error); return; }
+
+  _batchJobId = d.job_id;
+  log(`Batch started — job_id=${_batchJobId}  n=${n_images}`);
+  _batchTimer = setInterval(pollBatch, 1500);
+}
+
+async function pollBatch() {
+  if (!_batchJobId) return;
+  const resp = await fetch(`/api/pharma/batch/${_batchJobId}`);
+  const d    = await resp.json();
+  document.getElementById("batch-bar").style.width = (d.progress || 0) + "%";
+  document.getElementById("batch-status-text").textContent =
+    `${d.generated || 0} / ${d.total || 0} — ${d.status}`;
+  if (d.status === "done" || d.status === "error") {
+    clearInterval(_batchTimer);
+    document.getElementById("btn-batch-start").disabled = false;
+    log(`Batch done → ${d.out_dir || ""}`);
+  }
+}
+
+// ── QC ────────────────────────────────────────────────────────────────────────
+function setQC(qc) {
+  const el = document.getElementById("qc-panel");
+  if (!qc) { el.innerHTML = '<div class="text-muted small">Run preview first</div>'; return; }
+  const verdict = qc.verdict || "—";
+  const color   = verdict.includes("PASS") ? "success" :
+                  verdict.includes("WARN") ? "warning" : "danger";
+  let html = `<span class="badge bg-${color} mb-2 fs-6">${verdict}</span><br>`;
+  Object.entries(qc).forEach(([k, v]) => {
+    if (k === "verdict") return;
+    html += `<div class="small text-muted">${k}: <span class="text-light">${
+      typeof v === "number" ? v.toFixed(3) : v}</span></div>`;
+  });
+  el.innerHTML = html;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function showPanel(id, b64) {
+  if (!b64) return;
+  document.getElementById(id).src = "data:image/png;base64," + b64;
+}
+
+function clearPanels(ids) {
+  ids.forEach(id => { document.getElementById(id).src = ""; });
+}
+
+function addHistory(b64) {
+  const strip = document.getElementById("history-strip");
+  const img   = document.createElement("img");
+  img.src       = "data:image/png;base64," + b64;
+  img.className = "rounded border border-secondary";
+  img.style     = "width:56px;height:56px;object-fit:contain;cursor:pointer;background:#111";
+  img.onclick   = () => { _resultB64 = b64; showPanel("panel-result", b64); };
+  strip.prepend(img);
+  if (strip.children.length > 12) strip.removeChild(strip.lastChild);
+}
+
+function randomSeed() {
+  document.getElementById("inp-seed").value = Math.floor(Math.random() * 9999);
+}
+
+function log(msg) {
+  const box = document.getElementById("log-box");
+  box.textContent += `> ${msg}\n`;
+  box.scrollTop = box.scrollHeight;
+}
+
+function clearLog() {
+  document.getElementById("log-box").textContent = "";
+}
+</script>
+{% endblock %}

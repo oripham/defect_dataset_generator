@@ -1,0 +1,118 @@
+# ═══════════════════════════════════════════════════════════
+#  Chỉ đưa 6 thư mục lên remote: webapp, scripts, tools, server, gui, engines
+# ═══════════════════════════════════════════════════════════
+/*
+!.gitignore
+!/webapp/
+!/webapp/**
+!/scripts/
+!/scripts/**
+!/tools/
+!/tools/**
+!/server/
+!/server/**
+!/gui/
+!/gui/**
+!/engines/
+!/engines/**
+
+# ═══════════════════════════════════════════════════════════
+#  .gitignore — defect_dataset_generator
+#  Chỉ track source code. Bỏ models, ảnh, output, logs.
+# ═══════════════════════════════════════════════════════════
+
+# ── Python cache ────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual environments ────────────────────────────────────
+venv/
+.venv/
+env/
+.env
+
+# ── Model weights (too large — download via download_models.py)
+models/
+*.pt
+*.bin
+*.safetensors
+*.ckpt
+*.pth
+*.onnx
+*.pkl
+
+# ── Generated images & output ───────────────────────────────
+output/
+*/output/
+**/output/
+test_output*/
+test_cv/
+test_genai/
+test_dep/
+test_dep_out/
+test_pipeline_out/
+*.png
+*.jpg
+*.jpeg
+*.bmp
+*.tiff
+*.tif
+*.webp
+
+# ── Workspace data (user uploads, jobs, generated datasets) ─
+workspace/
+*/workspace/
+**/workspace/
+
+# ── Logs ────────────────────────────────────────────────────
+logs/
+*.log
+nohup.out
+/tmp/
+
+# ── Uploads & session temp ──────────────────────────────────
+uploads/
+sessions/
+
+# ── Backup & old folders ────────────────────────────────────
+*_backup*/
+*_backup/
+*_old/
+gui_backup*/
+webapp_backup*/
+webapp_old*/
+
+# ── Nested mirror folder (V:\defect_dataset_generator) ─────
+/defect_dataset_generator/
+
+# ── IDE ─────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.user
+*.sublime-project
+*.sublime-workspace
+
+# ── OS ──────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Jupyter ─────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── Zip exports (generated datasets) ────────────────────────
+*.zip
+
+# ── Test scripts & integration test outputs ─────────────────
+test_integration.py
+test_router.py
+test_scenario.py

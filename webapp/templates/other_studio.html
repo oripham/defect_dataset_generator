@@ -1,0 +1,574 @@
+{% extends "base.html" %}
+{% set active = 'other' %}
+
+{% block content %}
+<div class="d-flex gap-3" style="min-height:calc(100vh - 2rem)">
+
+  <!-- ── Left: Controls ──────────────────────────────────────── -->
+  <div class="card bg-dark border-secondary" style="width:300px;min-width:300px;overflow-y:auto">
+    <div class="card-body p-3">
+      <h6 class="text-warning fw-bold mb-3">🔬 Other Defects — Unclassified</h6>
+      <p class="small text-muted mb-3">
+        For defects that don't fit cap/pharma/metal_cap categories.
+        Upload an OK image and an NG reference — the AI will learn and reproduce the defect style.
+      </p>
+
+      <!-- Upload OK image -->
+      <label class="form-label small fw-semibold text-success">1. OK Image (Good product)</label>
+      <input type="file" id="inp-ok-file" class="form-control form-control-sm bg-dark border-secondary text-light mb-2"
+             accept=".png,.jpg,.bmp" onchange="onOkUpload(this)">
+      <button class="btn btn-outline-secondary btn-sm w-100 mb-3" onclick="loadOkLibrary()">
+        📂 Load from library
+      </button>
+
+      <!-- Upload NG reference -->
+      <label class="form-label small fw-semibold text-danger">2. NG Reference (Defect sample)</label>
+      <input type="file" id="inp-ng-file" class="form-control form-control-sm bg-dark border-secondary text-light mb-2"
+             accept=".png,.jpg,.bmp" onchange="onNgUpload(this)">
+      <button class="btn btn-outline-secondary btn-sm w-100 mb-3" onclick="loadNgLibrary()">
+        📂 Load from library
+      </button>
+
+      <hr class="border-secondary my-2">
+
+      <!-- Mask drawing toggle -->
+      <label class="form-label small fw-semibold text-info">3. Draw Defect Mask (optional)</label>
+      <div class="d-flex gap-2 mb-2">
+        <button id="btn-draw" class="btn btn-outline-info btn-sm flex-grow-1" onclick="toggleDraw()">
+          ✏️ Draw Mask
+        </button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="clearMask()">🗑️ Clear</button>
+      </div>
+      <div class="d-flex align-items-center gap-2 mb-3">
+        <span class="small text-muted">Brush:</span>
+        <input type="range" class="form-range flex-grow-1" id="slider-brush"
+               min="5" max="60" step="1" value="20">
+        <span id="val-brush" class="small text-info" style="width:24px">20</span>
+      </div>
+
+      <hr class="border-secondary my-2">
+
+      <!-- Parameters -->
+      <label class="form-label small fw-semibold">Intensity</label>
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <span id="val-intensity" class="small text-info" style="width:32px">0.6</span>
+        <input type="range" class="form-range flex-grow-1" id="slider-intensity"
+               min="0.1" max="1.0" step="0.05" value="0.6"
+               oninput="document.getElementById('val-intensity').textContent=parseFloat(this.value).toFixed(2)">
+      </div>
+
+      <label class="form-label small fw-semibold">Seed</label>
+      <div class="input-group input-group-sm mb-3">
+        <input type="number" id="inp-seed" class="form-control bg-dark border-secondary text-light" value="42">
+        <button class="btn btn-outline-secondary" onclick="randomSeed()" title="Random">🎲</button>
+      </div>
+
+      <!-- Category for save -->
+      <label class="form-label small fw-semibold">Category (for saving)</label>
+      <input type="text" id="inp-category" class="form-control form-control-sm bg-dark border-secondary text-light mb-3"
+             value="default" placeholder="e.g. pcb, connector, gasket">
+
+    </div>
+  </div>
+
+  <!-- ── Center: Canvas ──────────────────────────────────────── -->
+  <div class="flex-grow-1 d-flex flex-column gap-3">
+
+    <!-- Action bar -->
+    <div class="d-flex gap-2 align-items-center">
+      <button id="btn-preview" class="btn btn-primary fw-bold px-4" onclick="runPreview()">
+        ⚡ Preview
+      </button>
+      <button class="btn btn-outline-info" onclick="document.getElementById('batch-modal').style.display='flex'">
+        📦 Batch
+      </button>
+      <span id="status-msg" class="small text-muted ms-2"></span>
+    </div>
+
+    <!-- 2×2 canvas grid -->
+    <div class="d-grid gap-2" style="grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr">
+      <div class="position-relative">
+        <div class="small text-muted mb-1">OK Image <span class="text-info" id="draw-indicator" style="display:none">(Drawing mask...)</span></div>
+        <canvas id="canvas-ok" class="w-100 rounded border border-secondary" style="max-height:300px;object-fit:contain;background:#111"></canvas>
+      </div>
+      <div>
+        <div class="small text-muted mb-1">NG Reference</div>
+        <canvas id="canvas-ng" class="w-100 rounded border border-secondary" style="max-height:300px;object-fit:contain;background:#111"></canvas>
+      </div>
+      <div>
+        <div class="small text-muted mb-1">Result</div>
+        <canvas id="canvas-result" class="w-100 rounded border border-secondary" style="max-height:300px;object-fit:contain;background:#111"></canvas>
+      </div>
+      <div>
+        <div class="small text-muted mb-1">Diff ×4</div>
+        <canvas id="canvas-diff" class="w-100 rounded border border-secondary" style="max-height:300px;object-fit:contain;background:#111"></canvas>
+      </div>
+    </div>
+
+    <!-- Debug panel -->
+    <div>
+      <div class="small text-muted mb-1">Debug Panel (OK | Mask | Result | Diff×4)</div>
+      <img id="img-debug" class="w-100 rounded border border-secondary" style="max-height:200px;object-fit:contain;background:#111;display:none">
+    </div>
+  </div>
+
+  <!-- ── Right: Output ───────────────────────────────────────── -->
+  <div class="card bg-dark border-secondary" style="width:240px;min-width:240px;overflow-y:auto">
+    <div class="card-body p-3">
+      <h6 class="text-info fw-bold mb-3">Output</h6>
+
+      <!-- Engine info -->
+      <div id="engine-box" class="mb-3" style="display:none">
+        <div class="small fw-semibold text-muted mb-1">Engine Used</div>
+        <span id="engine-badge" class="badge bg-secondary">—</span>
+        <div class="small text-muted mt-1" id="engine-meta"></div>
+      </div>
+
+      <!-- Save / Download -->
+      <button class="btn btn-success btn-sm w-100 mb-2" onclick="saveResult()">💾 Save</button>
+      <button class="btn btn-outline-secondary btn-sm w-100 mb-3" onclick="downloadResult()">⬇ Download PNG</button>
+
+      <!-- OK Library -->
+      <div>
+        <div class="small fw-semibold text-muted mb-1">OK Library</div>
+        <div id="ok-library" class="d-flex flex-wrap gap-1" style="max-height:120px;overflow-y:auto"></div>
+      </div>
+
+      <hr class="border-secondary my-2">
+
+      <!-- NG Library -->
+      <div>
+        <div class="small fw-semibold text-muted mb-1">NG Library</div>
+        <div id="ng-library" class="d-flex flex-wrap gap-1" style="max-height:120px;overflow-y:auto"></div>
+      </div>
+
+      <hr class="border-secondary my-2">
+
+      <!-- Recent results -->
+      <div>
+        <div class="small fw-semibold text-muted mb-1">Recent Results</div>
+        <div id="results-gallery" class="d-flex flex-wrap gap-1" style="max-height:200px;overflow-y:auto"></div>
+        <button class="btn btn-outline-secondary btn-sm w-100 mt-1" onclick="loadResults()">🔄 Refresh</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Batch Modal ─────────────────────────────────────────────── -->
+<div id="batch-modal" class="position-fixed top-0 start-0 w-100 h-100 d-none align-items-center justify-content-center"
+     style="background:rgba(0,0,0,0.7);z-index:9999;display:none!important">
+  <div class="card bg-dark border-secondary p-4" style="width:400px">
+    <h6 class="text-warning mb-3">📦 Batch Generation</h6>
+    <label class="form-label small">Number of images</label>
+    <input type="number" id="batch-n" class="form-control form-control-sm bg-dark border-secondary text-light mb-3" value="20" min="1" max="500">
+    <div class="progress mb-3" style="height:8px;display:none" id="batch-progress-bar">
+      <div class="progress-bar progress-bar-striped progress-bar-animated" id="batch-progress" style="width:0%"></div>
+    </div>
+    <div id="batch-status" class="small text-muted mb-3"></div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-warning flex-grow-1" onclick="startBatch()">🚀 Start</button>
+      <button class="btn btn-outline-secondary" onclick="document.getElementById('batch-modal').style.display='none'">✕ Close</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let okImageB64  = null;
+let ngImageB64  = null;
+let resultB64   = null;
+let maskB64     = null;
+let isDrawing   = false;
+let drawMode    = false;
+let batchJobId  = null;
+let batchTimer  = null;
+
+// Mask canvas overlay state
+let maskCanvas  = null;
+let maskCtx     = null;
+
+// ── OK / NG Upload ────────────────────────────────────────────────────────────
+function onOkUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const dataUrl = e.target.result;
+    okImageB64 = dataUrl.split(',')[1];
+    drawToCanvas('canvas-ok', dataUrl);
+    initMaskCanvas();
+    status('OK image loaded');
+  };
+  reader.readAsDataURL(file);
+}
+
+function onNgUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const dataUrl = e.target.result;
+    ngImageB64 = dataUrl.split(',')[1];
+    drawToCanvas('canvas-ng', dataUrl);
+    status('NG reference loaded');
+  };
+  reader.readAsDataURL(file);
+}
+
+// ── Mask Drawing ──────────────────────────────────────────────────────────────
+function initMaskCanvas() {
+  const okCanvas = document.getElementById('canvas-ok');
+  // Create overlay canvas for mask drawing (same size, absolute positioned)
+  if (!maskCanvas) {
+    maskCanvas = document.createElement('canvas');
+    maskCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;cursor:crosshair;pointer-events:none;opacity:0.5';
+    okCanvas.parentElement.appendChild(maskCanvas);
+  }
+  maskCanvas.width  = okCanvas.width;
+  maskCanvas.height = okCanvas.height;
+  maskCtx = maskCanvas.getContext('2d');
+  maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+}
+
+function toggleDraw() {
+  drawMode = !drawMode;
+  const btn = document.getElementById('btn-draw');
+  const indicator = document.getElementById('draw-indicator');
+  if (drawMode) {
+    btn.classList.replace('btn-outline-info', 'btn-info');
+    btn.textContent = '✏️ Drawing...';
+    indicator.style.display = '';
+    if (maskCanvas) maskCanvas.style.pointerEvents = 'auto';
+    enableDrawEvents();
+  } else {
+    btn.classList.replace('btn-info', 'btn-outline-info');
+    btn.textContent = '✏️ Draw Mask';
+    indicator.style.display = 'none';
+    if (maskCanvas) maskCanvas.style.pointerEvents = 'none';
+    extractMask();
+  }
+}
+
+function enableDrawEvents() {
+  if (!maskCanvas) return;
+  maskCanvas.onmousedown = e => { isDrawing = true; drawBrush(e); };
+  maskCanvas.onmousemove = e => { if (isDrawing) drawBrush(e); };
+  maskCanvas.onmouseup   = () => { isDrawing = false; };
+  maskCanvas.onmouseleave = () => { isDrawing = false; };
+}
+
+function drawBrush(e) {
+  if (!maskCtx) return;
+  const rect = maskCanvas.getBoundingClientRect();
+  const scaleX = maskCanvas.width / rect.width;
+  const scaleY = maskCanvas.height / rect.height;
+  const x = (e.clientX - rect.left) * scaleX;
+  const y = (e.clientY - rect.top) * scaleY;
+  const r = parseInt(document.getElementById('slider-brush').value);
+
+  maskCtx.fillStyle = 'rgba(255, 0, 0, 0.7)';
+  maskCtx.beginPath();
+  maskCtx.arc(x, y, r, 0, Math.PI * 2);
+  maskCtx.fill();
+}
+
+function extractMask() {
+  if (!maskCanvas || !maskCtx) { maskB64 = null; return; }
+  // Convert red drawing to grayscale mask
+  const imgData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+  const gray = document.createElement('canvas');
+  gray.width = maskCanvas.width;
+  gray.height = maskCanvas.height;
+  const gCtx = gray.getContext('2d');
+  const out = gCtx.createImageData(gray.width, gray.height);
+  for (let i = 0; i < imgData.data.length; i += 4) {
+    const val = imgData.data[i + 3] > 50 ? 255 : 0; // alpha > threshold → white
+    out.data[i] = out.data[i+1] = out.data[i+2] = val;
+    out.data[i+3] = 255;
+  }
+  gCtx.putImageData(out, 0, 0);
+  maskB64 = gray.toDataURL('image/png').split(',')[1];
+}
+
+function clearMask() {
+  if (maskCtx && maskCanvas) {
+    maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+  }
+  maskB64 = null;
+  status('Mask cleared');
+}
+
+document.getElementById('slider-brush').oninput = function() {
+  document.getElementById('val-brush').textContent = this.value;
+};
+
+// ── Load libraries ────────────────────────────────────────────────────────────
+async function loadOkLibrary() {
+  const cat = document.getElementById('inp-category').value || 'default';
+  const r = await fetch(`/api/other/ok-images?category=${cat}`);
+  if (!r.ok) return;
+  const data = await r.json();
+  const box = document.getElementById('ok-library');
+  box.innerHTML = '';
+  if (!data.images?.length) { box.innerHTML = '<span class="small text-muted">No images</span>'; return; }
+  data.images.forEach(img => {
+    const el = document.createElement('img');
+    el.src = 'data:image/png;base64,' + img.thumb_b64;
+    el.title = img.filename;
+    el.style.cssText = 'height:40px;cursor:pointer;border:2px solid transparent;border-radius:4px';
+    el.onclick = () => selectImage(img, el, 'ok');
+    box.appendChild(el);
+  });
+}
+
+async function loadNgLibrary() {
+  const cat = document.getElementById('inp-category').value || 'default';
+  const r = await fetch(`/api/other/ng-images?category=${cat}`);
+  if (!r.ok) return;
+  const data = await r.json();
+  const box = document.getElementById('ng-library');
+  box.innerHTML = '';
+  if (!data.images?.length) { box.innerHTML = '<span class="small text-muted">No images</span>'; return; }
+  data.images.forEach(img => {
+    const el = document.createElement('img');
+    el.src = 'data:image/png;base64,' + img.thumb_b64;
+    el.title = img.filename;
+    el.style.cssText = 'height:40px;cursor:pointer;border:2px solid transparent;border-radius:4px';
+    el.onclick = () => selectImage(img, el, 'ng');
+    box.appendChild(el);
+  });
+}
+
+async function selectImage(img, el, type) {
+  const libId = type === 'ok' ? 'ok-library' : 'ng-library';
+  document.querySelectorAll(`#${libId} img`).forEach(e => e.style.borderColor = 'transparent');
+  el.style.borderColor = '#0d6efd';
+
+  const fullResp = await fetch(`/api/other/load-image?path=${encodeURIComponent(img.path)}`);
+  if (fullResp.ok) {
+    const blob = await fullResp.blob();
+    const dataUrl = await blobToDataUrl(blob);
+    const b64 = dataUrl.split(',')[1];
+    if (type === 'ok') {
+      okImageB64 = b64;
+      drawToCanvas('canvas-ok', dataUrl);
+      initMaskCanvas();
+      status('OK loaded: ' + img.filename);
+    } else {
+      ngImageB64 = b64;
+      drawToCanvas('canvas-ng', dataUrl);
+      status('NG loaded: ' + img.filename);
+    }
+  }
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = e => res(e.target.result);
+    r.onerror = rej;
+    r.readAsDataURL(blob);
+  });
+}
+
+// ── Canvas drawing ────────────────────────────────────────────────────────────
+function drawToCanvas(canvasId, src) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  const img = new Image();
+  img.onload = () => {
+    canvas.width  = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0);
+  };
+  img.src = src.startsWith('data:') ? src : 'data:image/png;base64,' + src;
+}
+
+// ── Preview ───────────────────────────────────────────────────────────────────
+async function runPreview() {
+  if (!okImageB64) { status('Load OK image first'); return; }
+
+  // Extract mask if in draw mode
+  if (drawMode) {
+    toggleDraw(); // exit draw mode & extract mask
+  } else {
+    extractMask();
+  }
+
+  const btn = document.getElementById('btn-preview');
+  btn.disabled = true; btn.textContent = '⏳ Generating...';
+  status('Generating...');
+
+  try {
+    const r = await fetch('/api/other/preview', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        image_b64:     okImageB64,
+        mask_b64:      maskB64,
+        ref_image_b64: ngImageB64,
+        params: {
+          seed:      parseInt(document.getElementById('inp-seed').value) || 42,
+          intensity: parseFloat(document.getElementById('slider-intensity').value),
+        }
+      })
+    });
+    const data = await r.json();
+    if (data.error) { status('Error: ' + data.error); return; }
+
+    resultB64 = data.result_image;
+    drawToCanvas('canvas-result', data.result_image);
+
+    // Diff
+    if (okImageB64 && data.result_image) computeDiff(okImageB64, data.result_image);
+
+    // Debug panel
+    const dbg = document.getElementById('img-debug');
+    if (data.debug_panel) {
+      dbg.src = 'data:image/png;base64,' + data.debug_panel;
+      dbg.style.display = '';
+    }
+
+    // Engine info
+    document.getElementById('engine-box').style.display = '';
+    const eng = data.engine || data.metadata?.engine || '—';
+    document.getElementById('engine-badge').textContent = eng;
+    document.getElementById('engine-badge').className = 'badge ' +
+      (eng === 'genai' ? 'bg-success' : 'bg-info');
+    document.getElementById('engine-meta').textContent =
+      JSON.stringify(data.metadata || {}, null, 1).slice(0, 200);
+
+    status('Done ✓');
+  } catch(e) {
+    status('Error: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '⚡ Preview';
+  }
+}
+
+// ── Diff ──────────────────────────────────────────────────────────────────────
+function computeDiff(b641, b642) {
+  const img1 = new Image(), img2 = new Image();
+  let loaded = 0;
+  const onLoad = () => {
+    if (++loaded < 2) return;
+    const c = document.getElementById('canvas-diff');
+    c.width = img1.width; c.height = img1.height;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img1, 0, 0);
+    const d1 = ctx.getImageData(0, 0, c.width, c.height);
+    ctx.drawImage(img2, 0, 0);
+    const d2 = ctx.getImageData(0, 0, c.width, c.height);
+    const out = ctx.createImageData(c.width, c.height);
+    for (let i = 0; i < d1.data.length; i += 4) {
+      for (let j = 0; j < 3; j++)
+        out.data[i+j] = Math.min(255, Math.abs(d1.data[i+j] - d2.data[i+j]) * 4);
+      out.data[i+3] = 255;
+    }
+    ctx.putImageData(out, 0, 0);
+  };
+  img1.onload = onLoad; img2.onload = onLoad;
+  img1.src = 'data:image/png;base64,' + b641;
+  img2.src = 'data:image/png;base64,' + b642;
+}
+
+// ── Save / Download ───────────────────────────────────────────────────────────
+async function saveResult() {
+  if (!resultB64) { status('Generate first'); return; }
+  const r = await fetch('/api/other/save', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      result_b64: resultB64,
+      category:   document.getElementById('inp-category').value || 'default',
+    })
+  });
+  const d = await r.json();
+  status(d.saved ? '✅ Saved: ' + d.filename : '❌ Save failed');
+}
+
+function downloadResult() {
+  if (!resultB64) { status('Generate first'); return; }
+  const a = document.createElement('a');
+  a.href = 'data:image/png;base64,' + resultB64;
+  a.download = 'other_result.png';
+  a.click();
+}
+
+// ── Batch ─────────────────────────────────────────────────────────────────────
+async function startBatch() {
+  if (!okImageB64) { status('Load OK image first'); return; }
+  extractMask();
+  const n = parseInt(document.getElementById('batch-n').value) || 10;
+  const r = await fetch('/api/other/batch', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      image_b64:     okImageB64,
+      mask_b64:      maskB64,
+      ref_image_b64: ngImageB64,
+      category:      document.getElementById('inp-category').value || 'default',
+      params: {
+        seed:      parseInt(document.getElementById('inp-seed').value) || 42,
+        intensity: parseFloat(document.getElementById('slider-intensity').value),
+      },
+      n_images: n
+    })
+  });
+  const d = await r.json();
+  batchJobId = d.job_id;
+  document.getElementById('batch-progress-bar').style.display = '';
+  document.getElementById('batch-status').textContent = 'Queued...';
+  batchTimer = setInterval(pollBatch, 1000);
+}
+
+async function pollBatch() {
+  if (!batchJobId) return;
+  const r = await fetch('/api/other/batch/' + batchJobId);
+  const d = await r.json();
+  const pct = d.progress || 0;
+  document.getElementById('batch-progress').style.width = pct + '%';
+  document.getElementById('batch-status').textContent =
+    `${d.status} — ${d.generated}/${d.total} generated, ${d.errors} errors`;
+  if (d.status === 'done' || d.status === 'error') {
+    clearInterval(batchTimer); batchTimer = null;
+    status(d.status === 'done' ? `✅ Batch done: ${d.generated} images → ${d.out_dir}` : '❌ Error: ' + d.error);
+    loadResults();
+  }
+}
+
+// ── Results gallery ───────────────────────────────────────────────────────────
+async function loadResults() {
+  const r = await fetch('/api/other/results?limit=20');
+  if (!r.ok) return;
+  const data = await r.json();
+  const box = document.getElementById('results-gallery');
+  box.innerHTML = '';
+  if (!data.results?.length) { box.innerHTML = '<span class="small text-muted">No results</span>'; return; }
+  data.results.forEach(res => {
+    const el = document.createElement('div');
+    el.className = 'small text-muted text-truncate w-100';
+    el.textContent = res.filename;
+    el.title = res.path;
+    box.appendChild(el);
+  });
+}
+
+// ── Misc ──────────────────────────────────────────────────────────────────────
+function randomSeed() {
+  document.getElementById('inp-seed').value = Math.floor(Math.random() * 99999);
+}
+
+function status(msg) {
+  document.getElementById('status-msg').textContent = msg;
+}
+
+// Init
+loadOkLibrary();
+loadNgLibrary();
+loadResults();
+</script>
+{% endblock %}

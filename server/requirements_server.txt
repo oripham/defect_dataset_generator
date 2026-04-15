@@ -1,0 +1,30 @@
+# Server-side requirements
+# Base image: pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime (torch 2.1.0 pre-installed)
+# Pin torch/torchvision to base image version — prevents pip from downloading torch 2.1.2 (670MB).
+torch==2.1.0
+torchvision==0.16.0
+
+# ── Core ML ────────────────────────────────────────────────────────────────────
+numpy<2.0
+diffusers==0.29.2        # 0.29.2 tested stable on local RTX 4050; IPAdapterMixin present
+transformers==4.38.0
+accelerate==0.27.0
+huggingface-hub==0.23.4  # pin — 0.29.2 requires <1.0, 0.23.4 tested stable
+safetensors
+
+# xformers removed — conflicts with torch==2.1.0 pin (xformers 0.0.23.post1 needs 2.1.2).
+# Code uses try/except so it degrades gracefully. RTX 4090 on RunPod has 24GB VRAM — not needed.
+
+# ── Image / Vision ─────────────────────────────────────────────────────────────
+opencv-python-headless
+Pillow
+scipy                    # Gaussian filter for poisson_paste fallback + future use
+timm                     # Required by transformers depth-estimation pipeline (DPT models)
+
+# ── Utilities ──────────────────────────────────────────────────────────────────
+PyYAML
+tqdm
+
+# ── IP-Adapter (pinned commit for reproducibility) ────────────────────────────
+# Using a direct commit to avoid silent API breaks from git HEAD.
+git+https://github.com/tencent-ailab/IP-Adapter.git@main

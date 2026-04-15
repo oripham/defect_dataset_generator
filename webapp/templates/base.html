@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Defect Dataset Generator</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<div class="d-flex" style="min-height:100vh;">
+
+  <!-- Sidebar -->
+  <nav class="sidebar d-flex flex-column p-3" style="width:200px;min-width:200px;">
+    <div class="sidebar-brand mb-4">Dataset<br>Generator</div>
+    
+    <a href="/setup"   class="sidebar-link {% if active=='setup' %}active{% endif %}">🛠 Setup</a>
+    <a href="/studio"  class="sidebar-link {% if active=='studio' %}active{% endif %}">🧪 Defect Studio</a>
+    <a href="/other"   class="sidebar-link {% if active=='other' %}active{% endif %}">🔬 Other Defects</a>
+
+    <div class="mt-auto">
+      <button class="btn btn-sm btn-outline-danger w-100 mb-3 fw-bold" onclick="clearSession()">
+        🗑 Clear Session
+      </button>
+
+      <div class="small text-muted mb-1">Language</div>
+      <select class="form-select form-select-sm bg-dark text-light border-secondary" id="lang-select" onchange="setLanguage(this.value)">
+        <option value="en" {% if state.language=='en' or not state.language or state.language=='vi' %}selected{% endif %}>English</option>
+        <option value="ja" {% if state.language=='ja' %}selected{% endif %}>日本語</option>
+      </select>
+    </div>
+    <div class="mt-2 small {% if state.connected %}text-success{% else %}text-danger{% endif %}">
+      {% if state.connected %}● Connected{% else %}● Disconnected{% endif %}
+    </div>
+  </nav>
+
+  <!-- Main content -->
+  <main class="flex-grow-1 p-4 overflow-auto">
+    {% block content %}{% endblock %}
+  </main>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{{ url_for('static', filename='js/core/session.js') }}"></script>
+<script src="{{ url_for('static', filename='js/i18n.js') }}"></script>
+<script>
+async function clearSession() {
+  if (!confirm(t('Are you sure you want to clear all data and reset the session?'))) return;
+  try {
+    const res = await fetch('/api/clear-session', { method: 'POST' });
+    if (res.ok) window.location.href = '/setup';
+  } catch(e) { console.error(e); }
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

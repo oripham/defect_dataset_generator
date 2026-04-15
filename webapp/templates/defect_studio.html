@@ -1,0 +1,1131 @@
+{% extends "base.html" %}
+{% set active = 'studio' %}
+{% block content %}
+<div class="container-fluid py-3">
+
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="fw-bold mb-0">🧪 Defect Studio</h2>
+    <span id="engine-badge" class="badge bg-info text-dark px-3 py-2 text-uppercase">Engine: CV (Local)</span>
+  </div>
+
+  <div class="row g-3">
+
+    <!-- ══ LEFT: Controls ══════════════════════════════════════════════════ -->
+    <div class="col-lg-4 col-xl-3 d-flex flex-column gap-3">
+
+      <!-- 1. Product Type / 製品種別 -->
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-info">
+          1. Product Type <span class="text-muted fw-normal small">/ 製品種別</span>
+        </div>
+        <div class="card-body py-2">
+          <div class="d-flex gap-2 flex-wrap">
+            <button id="btn-group-cap" class="btn btn-sm btn-outline-info flex-fill"
+                    onclick="selectGroup('cap')">
+              🔩 Cap / キャップ
+            </button>
+            <button id="btn-group-pharma" class="btn btn-sm btn-outline-warning flex-fill"
+                    onclick="selectGroup('pharma')">
+              💊 Pharma / 医薬品
+            </button>
+            <button id="btn-group-napchai" class="btn btn-sm btn-outline-success flex-fill"
+                    onclick="selectGroup('metal_cap')">
+              ⭕ Metal Cap / 金属キャップ
+            </button>
+          </div>
+          <div id="group-cap-hint"       class="small text-muted mt-2">MKA Cap — Mask-based synthesis</div>
+          <div id="group-pharma-hint"    class="small text-muted mt-2" style="display:none">Capsule · Tablet — Auto Otsu mask</div>
+          <div id="group-napchai-hint"   class="small text-muted mt-2" style="display:none">Metal Cap — Polar Transform + SDXL refine (optional)</div>
+        </div>
+      </div>
+
+      <!-- 2. Defect Class / 欠陥種別 -->
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-info">
+          2. Defect Class <span class="text-muted fw-normal small">/ 欠陥種別</span>
+        </div>
+        <div class="card-body py-2">
+          <select id="sel-defect" class="form-select form-select-sm bg-dark border-secondary text-warning"
+                  onchange="onDefectChange()">
+          </select>
+        </div>
+      </div>
+
+      <!-- 3. Input Image / 入力画像 -->
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-info">
+          3. Input Image <span class="text-muted fw-normal small">/ 入力画像</span>
+        </div>
+        <div class="card-body py-2">
+          <label class="form-label small fw-semibold text-muted">OK image / OK品画像</label>
+          <input type="file" id="upload-ok" class="form-control form-control-sm bg-dark border-secondary text-light mb-2"
+                 accept="image/*" onchange="onUploadOk(this)">
+
+          <div id="upload-multi-wrap" style="display:none">
+            <label class="form-label small fw-semibold text-muted">Batch: multiple images / 複数画像</label>
+            <input type="file" id="upload-batch-files" class="form-control form-control-sm bg-dark border-secondary text-light mb-2"
+                   accept="image/*" multiple onchange="onUploadBatchFiles(this)">
+            <div id="batch-files-count" class="small text-muted"></div>
+          </div>
+
+
+          <!-- Napchai: NG reference for IP-Adapter -->
+          <div id="ng-ref-wrap" style="display:none">
+            <label class="form-label small fw-semibold text-muted mt-2">NG Reference (IP-Adapter) <span class="text-muted fw-normal">optional</span></label>
+            <input type="file" id="upload-ng-ref" class="form-control form-control-sm bg-dark border-secondary text-light mb-1"
+                   accept="image/*" onchange="onUploadNgRef(this)">
+            <!-- After upload: thumb + crop button -->
+            <div id="ng-ref-loaded" style="display:none" class="mb-1">
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <img id="thumb-ng-ref" style="height:38px;border-radius:3px;border:1px solid #555;flex-shrink:0">
+                <div class="flex-grow-1 overflow-hidden">
+                  <div id="ng-ref-name" class="small text-success text-truncate"></div>
+                  <div id="ng-ref-dim"  class="small text-muted"></div>
+                </div>
+                <button class="btn btn-sm btn-outline-info py-0" style="font-size:11px" onclick="toggleNgCropPanel()">✂ Crop</button>
+                <button class="btn btn-link btn-sm text-danger p-0" onclick="clearNgRef()">✕</button>
+              </div>
+              <!-- Inline crop canvas -->
+              <div id="ng-crop-panel" style="display:none" class="border border-secondary rounded p-2 mt-1" style="background:#0d1117">
+                <div class="small text-info mb-1">Drag to select the defect region →</div>
+                <canvas id="ng-crop-canvas" style="border:1px solid #3a3a5c;display:block;cursor:crosshair;max-width:100%"></canvas>
+                <div class="d-flex gap-2 mt-2 align-items-center">
+                  <button class="btn btn-sm btn-success" onclick="confirmNgCrop()">✓ Use Crop</button>
+                  <button class="btn btn-sm btn-outline-secondary" onclick="cancelNgCrop()">Cancel</button>
+                  <span id="ng-crop-hint" class="small text-muted ms-1">Drag rectangle over defect</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="mask-status" class="small text-muted mt-1"></div>
+          <img id="thumb-ok" src="" class="img-fluid rounded mt-2 border border-secondary"
+               style="max-height:100px;display:none;object-fit:contain;background:#111">
+
+          <!-- Metal Cap: draw-position canvas for scratch / mc_deform -->
+          <div id="mc-mask-draw-wrap" style="display:none" class="mt-2">
+            <button class="btn btn-sm btn-outline-info w-100 py-1" style="font-size:11px"
+                    onclick="toggleMcMaskPanel()">
+              ✏ Draw Position (optional) / 位置を描く
+            </button>
+            <div id="mc-mask-panel" style="display:none"
+                 class="mt-1 p-1 border border-secondary rounded" style="background:#0d1117">
+              <canvas id="mc-mask-canvas" style="display:block;cursor:crosshair;max-width:100%"></canvas>
+              <div class="d-flex gap-1 mt-1 align-items-center">
+                <span class="small text-muted">Brush:</span>
+                <input type="range" id="mc-brush-size" min="5" max="60" value="20"
+                       style="width:72px"
+                       oninput="_mcBrushSz=parseInt(this.value);document.getElementById('mc-brush-lbl').textContent=this.value">
+                <span id="mc-brush-lbl" class="small text-info" style="min-width:22px">20</span>
+                <button class="btn btn-sm btn-outline-danger py-0 px-1 ms-auto" style="font-size:11px"
+                        onclick="clearMcMask()">🗑</button>
+                <button class="btn btn-sm btn-success py-0 px-2" style="font-size:11px"
+                        onclick="confirmMcMask()">✓ Set</button>
+              </div>
+              <div id="mc-rim-offset-wrap" class="mt-1" style="display:none">
+                <div class="d-flex align-items-center gap-2">
+                  <span class="small text-muted">Rim offset:</span>
+                  <input type="range" id="mc-rim-offset" min="-80" max="80" value="0"
+                         style="width:140px"
+                         oninput="document.getElementById('mc-rim-offset-lbl').textContent=this.value">
+                  <span id="mc-rim-offset-lbl" class="small text-info" style="min-width:28px">0</span>
+                  <span class="small text-muted">px</span>
+                </div>
+                <div class="small text-muted">Use when scratch mask is clipped or shifted.</div>
+              </div>
+              <div id="mc-mask-hint" class="small text-muted mt-1">Paint the defect region, then click Set</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 4. Parameters / パラメータ -->
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-warning">
+          4. Parameters <span class="text-muted fw-normal small">/ パラメータ</span>
+        </div>
+        <div class="card-body py-2">
+
+          <label class="form-label small fw-semibold d-flex justify-content-between">
+            <span>Intensity / 強度</span>
+            <span id="val-intensity" class="text-info fw-bold">70%</span>
+          </label>
+          <input type="range" class="form-range mb-3" id="slider-intensity"
+                 min="0" max="100" value="70"
+                 oninput="document.getElementById('val-intensity').textContent=this.value+'%'">
+
+          <!-- Pharma: Crack / 割れ -->
+          <div id="params-crack" style="display:none">
+            <label class="form-label small fw-semibold">Break Type / 割れ形状</label>
+            <select id="sel-break-type" class="form-select form-select-sm bg-dark border-secondary text-light mb-2">
+              <option value="straight">Straight / 直線</option>
+              <option value="corner">Corner chip / 角欠け</option>
+              <option value="curved">Curved / 曲線</option>
+              <option value="concave">Concave / 凹型</option>
+            </select>
+            <label class="form-label small fw-semibold d-flex justify-content-between">
+              <span>Depth / 深さ</span><span id="val-depth" class="text-info fw-bold">30%</span>
+            </label>
+            <input type="range" class="form-range mb-2" id="slider-depth"
+                   min="10" max="70" value="30"
+                   oninput="document.getElementById('val-depth').textContent=this.value+'%'">
+            <label class="form-label small fw-semibold d-flex justify-content-between align-items-center">
+              <span>Angle / 角度</span>
+              <span class="d-flex align-items-center gap-2">
+                <span id="val-angle" class="text-info fw-bold">Random</span>
+                <label class="mb-0 small text-secondary d-flex align-items-center gap-1">
+                  <input type="checkbox" id="chk-angle-random" checked
+                         onchange="onAngleRandomToggle()"> Auto / ランダム
+                </label>
+              </span>
+            </label>
+            <input type="range" class="form-range mb-2" id="slider-angle"
+                   min="0" max="315" step="45" value="0" disabled
+                   oninput="document.getElementById('val-angle').textContent=this.value+'°'">
+          </div>
+
+          <!-- Pharma: Hollow / Underfill / 空洞・充填不足 -->
+          <div id="params-hollow" style="display:none">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" id="chk-fixed-region">
+              <label class="form-check-label small" for="chk-fixed-region">Fixed Region / 固定位置</label>
+            </div>
+          </div>
+
+          <!-- MKA: Polar deform / 極座標変形 -->
+          <div id="params-polar" style="display:none">
+            <label class="form-label small fw-semibold">Position / 位置</label>
+            <select id="sel-theta" class="form-select form-select-sm bg-dark border-secondary text-light mb-2">
+              <option value="0">12 o'clock / 12時</option>
+              <option value="1.571">3 o'clock / 3時</option>
+              <option value="3.1416" selected>6 o'clock / 6時</option>
+              <option value="4.712">9 o'clock / 9時</option>
+              <option value="random">Random / ランダム</option>
+            </select>
+            <label class="form-label small fw-semibold d-flex justify-content-between">
+              <span>Span / 範囲</span><span id="val-span" class="text-info fw-bold">0.39</span>
+            </label>
+            <input type="range" class="form-range mb-2" id="slider-span"
+                   min="0.1" max="1.2" step="0.05" value="0.39"
+                   oninput="document.getElementById('val-span').textContent=parseFloat(this.value).toFixed(2)">
+            <label class="form-label small fw-semibold d-flex justify-content-between">
+              <span>Deform Depth / 変形深さ</span><span id="val-deform" class="text-info fw-bold">15</span>
+            </label>
+            <input type="range" class="form-range mb-2" id="slider-deform"
+                   min="3" max="40" step="1" value="15"
+                   oninput="document.getElementById('val-deform').textContent=this.value">
+            <div id="params-ring-jitter" style="display:none">
+              <label class="form-label small fw-semibold d-flex justify-content-between">
+                <span>Jitter / ジッター</span><span id="val-jitter" class="text-info fw-bold">6</span>
+              </label>
+              <input type="range" class="form-range mb-2" id="slider-jitter"
+                     min="1" max="20" step="0.5" value="6"
+                     oninput="document.getElementById('val-jitter').textContent=parseFloat(this.value).toFixed(1)">
+            </div>
+          </div>
+
+          <!-- MKA: Scratch / Plastic flow / 傷・樹脂流れ -->
+          <div id="params-scuff" style="display:none">
+            <label class="form-label small fw-semibold">Scuff Style / 傷スタイル</label>
+            <select id="sel-mode" class="form-select form-select-sm bg-dark border-secondary text-light mb-2">
+              <option value="auto">Auto / 自動</option>
+              <option value="whiten_streak">Whiten Streak / 白線</option>
+              <option value="micro_haze">Micro Haze / 微細霞</option>
+              <option value="gouge_whiten">Gouge Whiten / 彫り白</option>
+              <option value="parallel_micro">Parallel Micro / 平行微細</option>
+              <option value="crosshatch">Crosshatch / 格子</option>
+            </select>
+          </div>
+
+          <!-- Plastic flow mask: auto small region (no UI) -->
+          <div id="params-plastic-flow-tune" style="display:none">
+            <label class="form-label small fw-semibold d-flex justify-content-between">
+              <span>Patch Size (max dim)</span><span id="val-pf-maxdim" class="text-info fw-bold">320</span>
+            </label>
+            <input type="range" class="form-range mb-2" id="slider-pf-maxdim"
+                   min="120" max="640" step="10" value="320"
+                   oninput="document.getElementById('val-pf-maxdim').textContent=this.value">
+
+            <label class="form-label small fw-semibold d-flex justify-content-between">
+              <span>Patch Scale</span><span id="val-pf-scale" class="text-info fw-bold">1.00</span>
+            </label>
+            <input type="range" class="form-range mb-2" id="slider-pf-scale"
+                   min="0.5" max="1.8" step="0.05" value="1.0"
+                   oninput="document.getElementById('val-pf-scale').textContent=parseFloat(this.value).toFixed(2)">
+
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" id="chk-pf-shadowfree" checked>
+              <label class="form-check-label small" for="chk-pf-shadowfree">
+                Shadow-free (no dark ring)
+              </label>
+            </div>
+          </div>
+
+          <!-- MKA: Dark spots / 黒異物 -->
+          <div id="params-spots" style="display:none">
+            <label class="form-label small fw-semibold">Radius px / 半径 (min – max)</label>
+            <div class="d-flex gap-2 mb-2">
+              <input type="number" id="inp-r-min" class="form-control form-control-sm bg-dark border-secondary text-light" value="1" min="1" max="60" style="width:62px">
+              <span class="small text-muted align-self-center">–</span>
+              <input type="number" id="inp-r-max" class="form-control form-control-sm bg-dark border-secondary text-light" value="3" min="1" max="80" style="width:62px">
+            </div>
+          </div>
+
+          <!-- Seed -->
+          <!-- Napchai: Ring Fracture amplitude / リング割れ振幅 -->
+          <div id="params-napchai-ring" style="display:none">
+            <label class="form-label small fw-semibold d-flex justify-content-between">
+              <span>Amplitude / 振幅</span><span id="val-amplitude" class="text-info fw-bold">6.0</span>
+            </label>
+            <input type="range" class="form-range mb-2" id="slider-amplitude"
+                   min="1" max="20" step="0.5" value="6"
+                   oninput="document.getElementById('val-amplitude').textContent=parseFloat(this.value).toFixed(1)">
+            <label class="form-label small fw-semibold d-flex justify-content-between">
+              <span>Falloff / ぼかし</span><span id="val-falloff" class="text-info fw-bold">1.0</span>
+            </label>
+            <input type="range" class="form-range mb-2" id="slider-falloff"
+                   min="0.1" max="3" step="0.1" value="1"
+                   oninput="document.getElementById('val-falloff').textContent=parseFloat(this.value).toFixed(1)">
+          </div>
+
+          <label class="form-label small fw-semibold">Seed / シード</label>
+          <div class="input-group input-group-sm mb-2">
+            <input type="number" id="inp-seed" class="form-control bg-dark border-secondary text-light" value="42">
+            <button class="btn btn-outline-secondary" onclick="randomSeed()" title="Random seed">🎲</button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Action buttons -->
+      <button id="btn-preview" class="btn btn-primary fw-bold" onclick="runPreview()">
+        ▶ Preview / プレビュー
+      </button>
+      <button id="btn-batch" class="btn btn-outline-warning fw-bold" onclick="openBatchModal()">
+        ⚡ Batch Generate / バッチ生成
+      </button>
+
+    </div><!-- /left -->
+
+    <!-- ══ CENTER: Preview ══════════════════════════════════════════════════ -->
+    <div class="col-lg-5 col-xl-6 d-flex flex-column gap-3">
+      <div class="card bg-dark-card border-secondary flex-grow-1">
+        <div class="card-header border-secondary bg-transparent fw-bold text-secondary">
+          Preview Panel / プレビュー
+        </div>
+        <div class="card-body p-2">
+          <div class="row g-2">
+            <div class="col-6">
+              <div class="small text-muted mb-1">OK Image / OK品</div>
+              <img id="panel-ok" src="" class="img-fluid rounded border border-secondary"
+                   style="min-height:140px;background:#111;width:100%;object-fit:contain">
+            </div>
+            <div class="col-6">
+              <div class="small text-muted mb-1">Mask / マスク</div>
+              <img id="panel-mask" src="" class="img-fluid rounded border border-secondary"
+                   style="min-height:140px;background:#111;width:100%;object-fit:contain">
+            </div>
+            <div class="col-6">
+              <div class="small text-muted mb-1">Result / 生成結果</div>
+              <img id="panel-result" src="" class="img-fluid rounded border border-secondary"
+                   style="min-height:140px;background:#111;width:100%;object-fit:contain">
+            </div>
+            <div class="col-6">
+              <div class="small text-muted mb-1">Debug (OK | Mask | Result | Diff×4)</div>
+              <img id="panel-diff" src="" class="img-fluid rounded border border-secondary"
+                   style="min-height:140px;background:#111;width:100%;object-fit:contain">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-secondary d-flex justify-content-between">
+          <span>Log</span>
+          <button class="btn btn-sm btn-link text-muted p-0" onclick="clearLog()">Clear</button>
+        </div>
+        <div class="card-body p-0">
+          <pre id="log-box" class="m-0 p-2 small text-success"
+               style="max-height:120px;overflow-y:auto;background:#0d0d0d;border-radius:0 0 .375rem .375rem"></pre>
+        </div>
+      </div>
+    </div><!-- /center -->
+
+    <!-- ══ RIGHT: Output ════════════════════════════════════════════════════ -->
+    <div class="col-lg-3 col-xl-3 d-flex flex-column gap-3">
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-secondary">QC</div>
+        <div class="card-body py-2" id="qc-panel">
+          <div class="text-muted small">Run preview first / プレビューを実行</div>
+        </div>
+      </div>
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-secondary">Output / 出力</div>
+        <div class="card-body py-2 d-flex flex-column gap-2">
+          <button class="btn btn-sm btn-success" id="btn-save" onclick="saveResult()" disabled>💾 Save / 保存</button>
+          <button class="btn btn-sm btn-outline-light" id="btn-download" onclick="downloadResult()" disabled>⬇ Download PNG</button>
+        </div>
+      </div>
+      <div class="card bg-dark-card border-secondary flex-grow-1">
+        <div class="card-header border-secondary bg-transparent fw-bold text-secondary">Recent / 履歴</div>
+        <div class="card-body p-2">
+          <div id="history-strip" class="d-flex flex-wrap gap-1"></div>
+        </div>
+      </div>
+    </div><!-- /right -->
+
+  </div><!-- /row -->
+</div>
+
+<!-- ── Batch Modal ──────────────────────────────────────────────────────────── -->
+<div id="batchModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;
+     background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center;">
+  <div class="bg-dark border border-secondary rounded p-4 text-light" style="width:420px;max-width:95vw">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h6 class="text-warning mb-0">⚡ Batch Generate / バッチ生成</h6>
+      <button class="btn btn-sm btn-outline-secondary" onclick="closeBatchModal()">✕</button>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label small fw-semibold">Number of images / 生成枚数</label>
+      <input type="number" id="batch-n" class="form-control bg-dark border-secondary text-light"
+             value="20" min="1" max="500">
+    </div>
+
+    <div class="mb-2 small text-muted" id="batch-src-info"></div>
+
+    <div class="mb-3" id="batch-crack-opts" style="display:none">
+      <label class="form-label small fw-semibold">Break types / 割れ形状</label>
+      <div class="d-flex flex-wrap gap-2">
+        <div class="form-check"><input class="form-check-input" type="checkbox" id="bc-straight" value="straight" checked>
+          <label class="form-check-label small" for="bc-straight">Straight</label></div>
+        <div class="form-check"><input class="form-check-input" type="checkbox" id="bc-corner" value="corner" checked>
+          <label class="form-check-label small" for="bc-corner">Corner</label></div>
+        <div class="form-check"><input class="form-check-input" type="checkbox" id="bc-curved" value="curved" checked>
+          <label class="form-check-label small" for="bc-curved">Curved</label></div>
+        <div class="form-check"><input class="form-check-input" type="checkbox" id="bc-concave" value="concave" checked>
+          <label class="form-check-label small" for="bc-concave">Concave</label></div>
+      </div>
+    </div>
+
+    <div id="batch-progress-wrap" style="display:none">
+      <div class="progress mb-2" style="height:8px">
+        <div id="batch-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width:0%"></div>
+      </div>
+      <div id="batch-status-text" class="small text-muted"></div>
+    </div>
+
+    <div class="d-flex gap-2 mt-3">
+      <button class="btn btn-secondary flex-grow-1" onclick="closeBatchModal()">Cancel / キャンセル</button>
+      <button class="btn btn-warning fw-bold flex-grow-1" id="btn-batch-start" onclick="startBatch()">⚡ Start / 開始</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+// ── Product catalog ───────────────────────────────────────────────────────────
+const GROUPS = {
+  cap: {
+    api: "cap",
+    product: "mka",
+    defects: [
+      { key: "scratch",      label: "Scratch / 傷",        params: "scuff" },
+      { key: "dent",         label: "Dent / 凹み",          params: null    },
+      { key: "plastic_flow", label: "Plastic Flow / 樹脂流れ", params: "scuff" },
+      { key: "dark_spots",   label: "Dark Spots / 黒異物",  params: "spots" },
+      { key: "thread",       label: "Thread / 糸異物",      params: null    },
+    ],
+  },
+  pharma: {
+    api: "pharma",
+    product: null,
+    defects: [
+      { key: "crack",     label: "Crack / 割れ (Tablet)",         params: "crack",  product: "round_tablet"       },
+      { key: "dent",      label: "Dent / 欠け (Tablet)",          params: null,     product: "round_tablet"       },
+      { key: "hollow",    label: "Hollow / 空洞 (Capsule)",       params: "hollow", product: "elongated_capsule"  },
+      { key: "underfill", label: "Underfill / 充填不足 (Capsule)", params: "hollow", product: "elongated_capsule"  },
+    ],
+  },
+  metal_cap: {
+    api: "metal_cap",
+    product: null,
+    defects: [
+      { key: "mc_deform",     label: "MC Deform / MC変形",     params: "polar"      },
+      { key: "ring_fracture", label: "Ring Fracture / 割れ輪", params: "napchai-ring" },
+      { key: "scratch",       label: "Scratch / 傷",           params: null         },
+    ],
+  },
+};
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let currentGroup = "cap";
+let okImageB64   = null;
+let ngRefB64     = null;
+let maskB64      = null;
+let resultB64    = null;
+let batchImagePool = [];
+let batchJobId   = null;
+let batchTimer   = null;
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+document.addEventListener("DOMContentLoaded", () => selectGroup("cap"));
+
+// ── Group select ──────────────────────────────────────────────────────────────
+function selectGroup(group) {
+  currentGroup = group;
+  okImageB64 = maskB64 = resultB64 = null;
+  batchImagePool = [];
+  document.getElementById("upload-ok").value = "";
+  clearPanels(["panel-ok", "panel-mask", "panel-result", "panel-diff"]);
+  document.getElementById("thumb-ok").style.display = "none";
+  document.getElementById("mask-status").textContent = "";
+
+  document.getElementById("btn-group-cap").className =
+    "btn btn-sm flex-fill " + (group === "cap"       ? "btn-info"    : "btn-outline-info");
+  document.getElementById("btn-group-pharma").className =
+    "btn btn-sm flex-fill " + (group === "pharma"    ? "btn-warning" : "btn-outline-warning");
+  document.getElementById("btn-group-napchai").className =
+    "btn btn-sm flex-fill " + (group === "metal_cap" ? "btn-success" : "btn-outline-success");
+
+  document.getElementById("group-cap-hint").style.display       = group === "cap"       ? "" : "none";
+  document.getElementById("group-pharma-hint").style.display    = group === "pharma"    ? "" : "none";
+  document.getElementById("group-napchai-hint").style.display   = group === "metal_cap" ? "" : "none";
+  // Show NG ref upload for Metal Cap (IP-Adapter) only — not for cap plastic_flow (CV-only)
+  const showNgRef = (group === "metal_cap");
+  document.getElementById("ng-ref-wrap").style.display = showNgRef ? "" : "none";
+  if (!showNgRef) clearNgRef();
+
+  const sel = document.getElementById("sel-defect");
+  sel.innerHTML = "";
+  GROUPS[group].defects.forEach(d => {
+    const opt = document.createElement("option");
+    opt.value = d.key;
+    opt.textContent = d.label;
+    sel.appendChild(opt);
+  });
+
+  onDefectChange();
+}
+
+// ── Defect change ─────────────────────────────────────────────────────────────
+function onDefectChange() {
+  const defectKey = document.getElementById("sel-defect").value;
+  const entry     = GROUPS[currentGroup].defects.find(d => d.key === defectKey) || {};
+  const paramType = entry.params;
+
+  ["params-crack", "params-hollow", "params-polar", "params-scuff",
+   "params-spots", "params-napchai-ring", "params-plastic-flow-tune"]
+    .forEach(id => document.getElementById(id).style.display = "none");
+  document.getElementById("params-ring-jitter").style.display = "none";
+
+  if      (paramType === "crack")        document.getElementById("params-crack").style.display        = "";
+  else if (paramType === "hollow")       document.getElementById("params-hollow").style.display       = "";
+  else if (paramType === "polar")        document.getElementById("params-polar").style.display        = "";
+  else if (paramType === "polar_ring") {
+    document.getElementById("params-polar").style.display       = "";
+    document.getElementById("params-ring-jitter").style.display = "";
+  }
+  else if (paramType === "scuff")        document.getElementById("params-scuff").style.display        = "";
+  else if (paramType === "spots")        document.getElementById("params-spots").style.display        = "";
+  else if (paramType === "napchai-ring") document.getElementById("params-napchai-ring").style.display = "";
+
+  // Plastic flow uses auto small-mask (no extra UI)
+  if (currentGroup === "cap" && defectKey === "plastic_flow") {
+    document.getElementById("params-plastic-flow-tune").style.display = "";
+  }
+
+  // NG ref upload: Metal Cap only — cap plastic_flow is CV-only, no ref needed
+  const showNgRef = (currentGroup === "metal_cap");
+  document.getElementById("ng-ref-wrap").style.display = showNgRef ? "" : "none";
+  if (!showNgRef) clearNgRef();
+
+  // Draw-position canvas: Metal Cap scratch / mc_deform only
+  const showMcDraw = (currentGroup === "metal_cap") &&
+                     (defectKey === "scratch" || defectKey === "mc_deform" || defectKey === "ring_fracture");
+  document.getElementById("mc-mask-draw-wrap").style.display = showMcDraw ? "" : "none";
+  // Rim offset slider: scratch (rim_col clipping) + ring_fracture (rim peak alignment)
+  const showRimOffset = (currentGroup === "metal_cap") &&
+                        (defectKey === "scratch" || defectKey === "ring_fracture");
+  const rimWrap = document.getElementById("mc-rim-offset-wrap");
+  if (rimWrap) rimWrap.style.display = showRimOffset ? "" : "none";
+  if (!showMcDraw) {
+    document.getElementById("mc-mask-panel").style.display = "none";
+  }
+  // Update hint text for mask panel
+  const hintEl = document.getElementById("mc-mask-hint");
+  if (hintEl && currentGroup === "metal_cap") {
+    if (defectKey === "scratch") hintEl.textContent = "Paint scratch region (slightly inside the outer rim), then click Set";
+    else if (defectKey === "mc_deform") hintEl.textContent = "Paint a position on the outer rim (just to indicate location), then click Set";
+    else if (defectKey === "ring_fracture") hintEl.textContent = "Paint a thin band on the rim you want to distort, then click Set";
+    else hintEl.textContent = "Paint the defect region, then click Set";
+  }
+  // Reset stale mask when switching defect type within metal_cap
+  // (avoid scratch mask accidentally sent to mc_deform or vice-versa)
+  if (currentGroup === "metal_cap") {
+    maskB64 = null;
+    _mcResetCanvas();
+    clearPanels(["panel-mask"]);
+  }
+}
+
+// ── Upload single OK image ────────────────────────────────────────────────────
+function onUploadOk(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    okImageB64 = e.target.result.split(",")[1];
+    const thumb = document.getElementById("thumb-ok");
+    thumb.src = e.target.result;
+    thumb.style.display = "";
+    showPanel("panel-ok", okImageB64);
+    maskB64 = null;
+    clearPanels(["panel-mask", "panel-result", "panel-diff"]);
+    document.getElementById("mask-status").textContent = "";
+    document.getElementById("btn-save").disabled     = true;
+    document.getElementById("btn-download").disabled = true;
+    // Reset Metal Cap draw-position canvas when a new OK image is loaded
+    _mcResetCanvas();
+    log("Uploaded: " + file.name);
+  };
+  reader.readAsDataURL(file);
+}
+
+// ── NG Reference upload + inline crop ────────────────────────────────────────
+let _ngFullImg = null;   // HTMLImageElement full NG
+let _ngCropRect = null;  // {x,y,w,h} in canvas px
+let _ngCropDraw = false, _ngCropSX = 0, _ngCropSY = 0;
+let _ngCropScale = 1;
+const _NG_CVW = 500;     // canvas display width
+
+function onUploadNgRef(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const dataUrl = e.target.result;
+    const img = new Image();
+    img.onload = () => {
+      _ngFullImg = img;
+      ngRefB64   = dataUrl.split(",")[1];   // default: full image
+      document.getElementById("thumb-ng-ref").src = dataUrl;
+      document.getElementById("ng-ref-name").textContent = file.name;
+      document.getElementById("ng-ref-dim").textContent  = img.width + "×" + img.height + " (full)";
+      document.getElementById("ng-ref-loaded").style.display = "";
+      document.getElementById("ng-crop-panel").style.display = "none";
+      log("NG ref loaded: " + file.name);
+    };
+    img.src = dataUrl;
+  };
+  reader.readAsDataURL(file);
+}
+
+function toggleNgCropPanel() {
+  const panel = document.getElementById("ng-crop-panel");
+  const open  = panel.style.display !== "none";
+  if (open) { panel.style.display = "none"; return; }
+  panel.style.display = "";
+  _initNgCropCanvas();
+}
+
+function _initNgCropCanvas() {
+  if (!_ngFullImg) return;
+  const cv = document.getElementById("ng-crop-canvas");
+  _ngCropScale = Math.min(1, _NG_CVW / _ngFullImg.width);
+  cv.width  = Math.round(_ngFullImg.width  * _ngCropScale);
+  cv.height = Math.round(_ngFullImg.height * _ngCropScale);
+  _ngCropRect = null;
+  _renderNgCrop();
+  cv.onmousedown = e => {
+    const p = _ngCropPos(e); _ngCropSX = p[0]; _ngCropSY = p[1];
+    _ngCropDraw = true; _ngCropRect = null;
+  };
+  cv.onmousemove = e => {
+    if (!_ngCropDraw) return;
+    const p = _ngCropPos(e);
+    _ngCropRect = { x: Math.min(_ngCropSX, p[0]), y: Math.min(_ngCropSY, p[1]),
+                    w: Math.abs(p[0]-_ngCropSX),  h: Math.abs(p[1]-_ngCropSY) };
+    _renderNgCrop();
+  };
+  cv.onmouseup = () => { _ngCropDraw = false; };
+}
+
+function _ngCropPos(e) {
+  const cv = document.getElementById("ng-crop-canvas");
+  const r  = cv.getBoundingClientRect();
+  return [(e.clientX-r.left)*cv.width/r.width, (e.clientY-r.top)*cv.height/r.height];
+}
+
+function _renderNgCrop() {
+  const cv  = document.getElementById("ng-crop-canvas");
+  const ctx = cv.getContext("2d");
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.drawImage(_ngFullImg, 0, 0, cv.width, cv.height);
+  const rc = _ngCropRect;
+  if (rc && rc.w > 4 && rc.h > 4) {
+    // dim outside
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.fillRect(0, 0, cv.width, rc.y);
+    ctx.fillRect(0, rc.y+rc.h, cv.width, cv.height-rc.y-rc.h);
+    ctx.fillRect(0, rc.y, rc.x, rc.h);
+    ctx.fillRect(rc.x+rc.w, rc.y, cv.width-rc.x-rc.w, rc.h);
+    // selection border
+    ctx.strokeStyle = "#00d4ff"; ctx.lineWidth = 2;
+    ctx.setLineDash([6,3]); ctx.strokeRect(rc.x, rc.y, rc.w, rc.h);
+    ctx.setLineDash([]);
+    // size label
+    const iw = Math.round(rc.w/_ngCropScale), ih = Math.round(rc.h/_ngCropScale);
+    ctx.fillStyle = "#00d4ff"; ctx.font = "12px monospace";
+    ctx.fillText(iw+"×"+ih, rc.x+4, rc.y+rc.h-4);
+  }
+}
+
+function confirmNgCrop() {
+  const rc = _ngCropRect;
+  if (!rc || rc.w < 10 || rc.h < 10) {
+    document.getElementById("ng-crop-hint").textContent = "⚠ Draw a region first";
+    return;
+  }
+  const ix = Math.round(rc.x / _ngCropScale),  iy = Math.round(rc.y / _ngCropScale);
+  const iw = Math.round(rc.w / _ngCropScale),  ih = Math.round(rc.h / _ngCropScale);
+  const tmp = document.createElement("canvas");
+  tmp.width = iw; tmp.height = ih;
+  tmp.getContext("2d").drawImage(_ngFullImg, ix, iy, iw, ih, 0, 0, iw, ih);
+  const dataUrl = tmp.toDataURL("image/png");
+  ngRefB64 = dataUrl.split(",")[1];
+  document.getElementById("thumb-ng-ref").src = dataUrl;
+  document.getElementById("ng-ref-dim").textContent = "✂ " + iw + "×" + ih + " (cropped)";
+  document.getElementById("ng-crop-panel").style.display = "none";
+  log("NG ref cropped: " + iw + "×" + ih + "px");
+}
+
+function cancelNgCrop() {
+  document.getElementById("ng-crop-panel").style.display = "none";
+}
+
+function clearNgRef() {
+  ngRefB64 = null; _ngFullImg = null; _ngCropRect = null;
+  const inp = document.getElementById("upload-ng-ref");
+  if (inp) inp.value = "";
+  document.getElementById("ng-ref-loaded").style.display = "none";
+  document.getElementById("ng-crop-panel").style.display = "none";
+}
+
+// ── Upload multiple images for batch ─────────────────────────────────────────
+function onUploadBatchFiles(input) {
+  batchImagePool = [];
+  const files = Array.from(input.files);
+  let loaded = 0;
+  files.forEach((file, idx) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      batchImagePool[idx] = e.target.result.split(",")[1];
+      loaded++;
+      if (loaded === files.length) {
+        document.getElementById("batch-files-count").textContent =
+          `✅ ${files.length} images ready / ${files.length}枚準備完了`;
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// ── Auto mask (Pharma / Otsu) ─────────────────────────────────────────────────
+async function runAutoMask() {
+  if (!okImageB64) { alert("Upload an OK image first. / OK品画像をアップロードしてください。"); return; }
+  document.getElementById("mask-status").textContent = "Detecting… / 検出中…";
+  try {
+    const resp = await fetch("/api/pharma/auto-mask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image_b64: okImageB64 }),
+    });
+    const data = await resp.json();
+    if (data.error) { log("Mask error: " + data.error); return; }
+    maskB64 = data.mask_b64;
+    showPanel("panel-mask", maskB64);
+    document.getElementById("mask-status").textContent =
+      `✅ area=${data.mask_area}px  bbox=${JSON.stringify(data.bbox)}`;
+    log(`Auto-mask: area=${data.mask_area}`);
+  } catch (e) { log("Auto-mask error: " + e); }
+}
+
+// ── Preview ───────────────────────────────────────────────────────────────────
+async function runPreview() {
+  if (!okImageB64) { alert("Upload an OK image first. / OK品画像をアップロードしてください。"); return; }
+  const btnEl = document.getElementById("btn-preview");
+  btnEl.disabled = true;
+  btnEl.textContent = "⏳ Generating… / 生成中…";
+  log("Running preview…");
+
+  const grp      = GROUPS[currentGroup];
+  const defectKey = document.getElementById("sel-defect").value;
+  const entry    = grp.defects.find(d => d.key === defectKey) || {};
+  const api      = grp.api;
+  const product  = entry.product || grp.product || currentGroup;
+  const params   = buildParams();
+
+  try {
+    const resp = await fetch(`/api/${api}/preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        image_b64:   okImageB64,
+        mask_b64:    maskB64 || null,
+        product,
+        defect_type: defectKey,
+        params,
+      }),
+    });
+    const data = await resp.json();
+    if (data.error) { log("Error: " + data.error); return; }
+
+    resultB64 = data.result_image;
+    maskB64   = data.mask_b64 || maskB64;
+
+    showPanel("panel-result", data.result_image);
+    if (maskB64)         showPanel("panel-mask", maskB64);
+    if (data.debug_panel) showPanel("panel-diff", data.debug_panel);
+
+    setQC(data.qc);
+    log(`Done — engine=${data.engine || api}  QC=${data.qc?.verdict || "—"}`);
+    addHistory(data.result_image);
+    document.getElementById("btn-save").disabled     = false;
+    document.getElementById("btn-download").disabled = false;
+  } catch (e) {
+    log("Preview error: " + e);
+  } finally {
+    btnEl.disabled = false;
+    btnEl.textContent = "▶ Preview / プレビュー";
+  }
+}
+
+// ── Build params ──────────────────────────────────────────────────────────────
+function buildParams() {
+  const defectKey = document.getElementById("sel-defect").value;
+  const p = {
+    intensity: parseInt(document.getElementById("slider-intensity").value) / 100,
+    seed:      parseInt(document.getElementById("inp-seed").value) || 42,
+  };
+  if (defectKey === "crack") {
+    p.break_type = document.getElementById("sel-break-type").value;
+    p.depth      = parseInt(document.getElementById("slider-depth").value) / 100;
+    const angleRandom = document.getElementById("chk-angle-random").checked;
+    p.angle = angleRandom
+      ? Math.floor(Math.random() * 8) * 45
+      : parseFloat(document.getElementById("slider-angle").value);
+  }
+  if (defectKey === "hollow" || defectKey === "underfill") {
+    p.fixed_region = document.getElementById("chk-fixed-region").checked;
+  }
+  // Napchai: NG reference image for IP-Adapter (ip_scale 0.8 vs 0.5)
+  if ((currentGroup === "metal_cap") && ngRefB64) {
+    p.ref_image_b64 = ngRefB64;
+  }
+  // Napchai: polar mc_deform params
+  if (defectKey === "mc_deform" && currentGroup === "metal_cap") {
+    let theta = document.getElementById("sel-theta").value;
+    if (theta === "random") theta = (Math.random() * 2 * Math.PI).toFixed(4);
+    p.theta_center    = parseFloat(theta);
+    p.theta_span      = parseFloat(document.getElementById("slider-span").value);
+    p.deform_strength = parseFloat(document.getElementById("slider-deform").value);
+  }
+  // Napchai / Metal Cap: ring_fracture params
+  if (defectKey === "ring_fracture" && currentGroup === "metal_cap") {
+    const ampEl     = document.getElementById("slider-amplitude");
+    const falloffEl = document.getElementById("slider-falloff");
+    if (ampEl)     p.jitter_amplitude = parseFloat(ampEl.value);
+    if (falloffEl) p.falloff_width    = parseFloat(falloffEl.value);
+  }
+  // Napchai / Metal Cap: rim offset (align rim_col with manual expectation)
+  if (currentGroup === "metal_cap" && (defectKey === "scratch" || defectKey === "ring_fracture")) {
+    const offEl = document.getElementById("mc-rim-offset");
+    if (offEl) p.rim_offset = parseInt(offEl.value) || 0;
+  }
+  if (defectKey === "scratch") {
+    p.mode = document.getElementById("sel-mode").value;
+  }
+  if (currentGroup === "cap" && defectKey === "plastic_flow") {
+    p.patch_max_dim = parseInt(document.getElementById("slider-pf-maxdim").value);
+    p.patch_scale   = parseFloat(document.getElementById("slider-pf-scale").value);
+    p.synth_positive_only = document.getElementById("chk-pf-shadowfree").checked;
+  }
+  if (defectKey === "dark_spots") {
+    p.n_spots_min = 1;
+    p.n_spots_max = 1;
+    p.r_min       = parseInt(document.getElementById("inp-r-min").value);
+    p.r_max       = parseInt(document.getElementById("inp-r-max").value);
+    p.bump        = true;
+  }
+  return p;
+}
+
+// ── Save / Download ───────────────────────────────────────────────────────────
+async function saveResult() {
+  if (!resultB64) return;
+  const grp      = GROUPS[currentGroup];
+  const defectKey = document.getElementById("sel-defect").value;
+  const entry    = grp.defects.find(d => d.key === defectKey) || {};
+  const api      = grp.api;
+  const product  = entry.product || grp.product || currentGroup;
+  try {
+    const resp = await fetch(`/api/${api}/save`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        result_b64:  resultB64,
+        mask_b64:    maskB64,
+        product,
+        defect_type: defectKey,
+        params:      buildParams(),
+      }),
+    });
+    const d = await resp.json();
+    log("Saved → " + (d.path || "?"));
+  } catch (e) { log("Save error: " + e); }
+}
+
+function downloadResult() {
+  if (!resultB64) return;
+  const defectKey = document.getElementById("sel-defect").value;
+  const a = document.createElement("a");
+  a.href     = "data:image/png;base64," + resultB64;
+  a.download = `${defectKey}_result.png`;
+  a.click();
+}
+
+// ── Batch ─────────────────────────────────────────────────────────────────────
+function openBatchModal() {
+  const defectKey = document.getElementById("sel-defect").value;
+  document.getElementById("batch-crack-opts").style.display = defectKey === "crack" ? "" : "none";
+  document.getElementById("batch-progress-wrap").style.display = "none";
+  document.getElementById("btn-batch-start").disabled = false;
+
+  const srcInfo = document.getElementById("batch-src-info");
+  if (batchImagePool.length > 0)
+    srcInfo.textContent = `✅ ${batchImagePool.length} source images / ${batchImagePool.length}枚のソース画像`;
+  else if (okImageB64)
+    srcInfo.textContent = "⚠️ Single OK image will be reused. / 1枚のOK画像を繰り返し使用します。";
+  else
+    srcInfo.textContent = "❌ No OK image loaded. / OK品画像がありません。";
+
+  document.getElementById("batchModal").style.display = "flex";
+}
+
+function closeBatchModal() {
+  document.getElementById("batchModal").style.display = "none";
+}
+
+async function startBatch() {
+  if (!okImageB64 && batchImagePool.length === 0) {
+    alert("Upload at least one OK image first. / OK品画像をアップロードしてください。");
+    return;
+  }
+  const grp      = GROUPS[currentGroup];
+  const defectKey = document.getElementById("sel-defect").value;
+  const entry    = grp.defects.find(d => d.key === defectKey) || {};
+  const api      = grp.api;
+  const product  = entry.product || grp.product || currentGroup;
+  const nImages  = parseInt(document.getElementById("batch-n").value) || 20;
+  const params   = buildParams();
+  const breakTypes = [];
+  document.querySelectorAll("#batch-crack-opts input[type=checkbox]:checked")
+    .forEach(cb => breakTypes.push(cb.value));
+
+  const imagePool = batchImagePool.length > 0 ? batchImagePool : [okImageB64];
+
+  document.getElementById("batch-progress-wrap").style.display = "";
+  document.getElementById("btn-batch-start").disabled = true;
+  log(`Batch start: ${nImages} images, source pool=${imagePool.length}`);
+
+  const resp = await fetch(`/api/${api}/batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      product,
+      defect_type:  defectKey,
+      n_images:     nImages,
+      params,
+      break_types:  breakTypes,
+      image_b64:    imagePool[0],
+      images_b64:   imagePool,
+    }),
+  });
+  const d = await resp.json();
+  if (d.error) { log("Batch error: " + d.error); return; }
+  batchJobId = d.job_id;
+  log(`Batch queued — job=${batchJobId}`);
+  batchTimer = setInterval(() => pollBatch(api), 1500);
+}
+
+async function pollBatch(api) {
+  if (!batchJobId) return;
+  const resp = await fetch(`/api/${api}/batch/${batchJobId}`);
+  const d    = await resp.json();
+  document.getElementById("batch-bar").style.width = (d.progress || 0) + "%";
+  document.getElementById("batch-status-text").textContent =
+    `${d.generated || 0} / ${d.total || 0} — ${d.status}`;
+  if (d.status === "done" || d.status === "error") {
+    clearInterval(batchTimer);
+    document.getElementById("btn-batch-start").disabled = false;
+    log(`Batch done → ${d.out_dir || d.error || ""}`);
+  }
+}
+
+// ── QC / Helpers ──────────────────────────────────────────────────────────────
+function setQC(qc) {
+  const el = document.getElementById("qc-panel");
+  if (!qc) {
+    el.innerHTML = '<div class="text-muted small">Run preview first / プレビューを実行</div>';
+    return;
+  }
+  const verdict = qc.verdict || "—";
+  const color   = verdict.includes("PASS") ? "success" : verdict.includes("WARN") ? "warning" : "secondary";
+  let html = `<span class="badge bg-${color} mb-2 fs-6">${verdict}</span><br>`;
+  Object.entries(qc).forEach(([k, v]) => {
+    if (k === "verdict") return;
+    html += `<div class="small text-muted">${k}: <span class="text-light">${typeof v === "number" ? v.toFixed(3) : v}</span></div>`;
+  });
+  el.innerHTML = html;
+}
+
+function showPanel(id, b64) {
+  if (!b64) return;
+  document.getElementById(id).src = b64.startsWith("data:") ? b64 : "data:image/png;base64," + b64;
+}
+function clearPanels(ids) {
+  ids.forEach(id => { const el = document.getElementById(id); if (el) el.src = ""; });
+}
+function addHistory(b64) {
+  const strip = document.getElementById("history-strip");
+  const img   = document.createElement("img");
+  img.src       = "data:image/png;base64," + b64;
+  img.className = "rounded border border-secondary";
+  img.style     = "width:56px;height:56px;object-fit:contain;cursor:pointer;background:#111";
+  img.onclick   = () => { resultB64 = b64; showPanel("panel-result", b64); };
+  strip.prepend(img);
+  if (strip.children.length > 12) strip.removeChild(strip.lastChild);
+}
+function randomSeed() {
+  document.getElementById("inp-seed").value = Math.floor(Math.random() * 9999);
+}
+function onAngleRandomToggle() {
+  const isRandom = document.getElementById("chk-angle-random").checked;
+  const slider   = document.getElementById("slider-angle");
+  const label    = document.getElementById("val-angle");
+  slider.disabled = isRandom;
+  label.textContent = isRandom ? "Random" : slider.value + "°";
+}
+function clearLog() {
+  document.getElementById("log-box").textContent = "";
+}
+function log(msg) {
+  const box = document.getElementById("log-box");
+  const ts  = new Date().toTimeString().slice(0, 8);
+  box.textContent += `[${ts}] ${msg}\n`;
+  box.scrollTop = box.scrollHeight;
+}
+
+// ── Metal Cap: draw-position canvas ──────────────────────────────────────────
+let _mcBaseImg    = null;   // HTMLImageElement for the OK image
+let _mcMaskOff    = null;   // offscreen canvas tracking painted pixels
+let _mcDrawing    = false;
+let _mcBrushSz    = 20;
+
+function _mcResetCanvas() {
+  _mcBaseImg = null; _mcMaskOff = null; _mcDrawing = false;
+  document.getElementById("mc-mask-panel").style.display = "none";
+  document.getElementById("mc-mask-hint").textContent = "Paint the defect region, then click Set";
+  const offEl = document.getElementById("mc-rim-offset");
+  const offLbl = document.getElementById("mc-rim-offset-lbl");
+  if (offEl) offEl.value = 0;
+  if (offLbl) offLbl.textContent = "0";
+}
+
+function toggleMcMaskPanel() {
+  const panel = document.getElementById("mc-mask-panel");
+  const open  = panel.style.display !== "none";
+  if (open) { panel.style.display = "none"; return; }
+  if (!okImageB64) { alert("Upload an OK image first."); return; }
+  panel.style.display = "";
+  _initMcMaskCanvas();
+}
+
+function _initMcMaskCanvas() {
+  const cv  = document.getElementById("mc-mask-canvas");
+  const ctx = cv.getContext("2d");
+  const MAX_W = 600;
+  const img   = new Image();
+  img.onload = () => {
+    _mcBaseImg  = img;
+    const scale = Math.min(1, MAX_W / img.width);
+    cv.width    = Math.round(img.width  * scale);
+    cv.height   = Math.round(img.height * scale);
+    _mcMaskOff  = document.createElement("canvas");
+    _mcMaskOff.width  = cv.width;
+    _mcMaskOff.height = cv.height;
+    _mcMaskOff.getContext("2d").clearRect(0, 0, cv.width, cv.height);
+    _mcRender(cv, ctx);
+    cv.onmousedown = e => { _mcDrawing = true;  _mcDraw(e, cv, ctx); };
+    cv.onmousemove = e => { if (_mcDrawing)     _mcDraw(e, cv, ctx); };
+    cv.onmouseup   = () => { _mcDrawing = false; };
+    cv.onmouseleave = () => { _mcDrawing = false; };
+  };
+  img.src = "data:image/png;base64," + okImageB64;
+}
+
+function _mcRender(cv, ctx) {
+  ctx.drawImage(_mcBaseImg, 0, 0, cv.width, cv.height);
+  ctx.globalAlpha = 0.5;
+  ctx.drawImage(_mcMaskOff, 0, 0);
+  ctx.globalAlpha = 1;
+}
+
+function _mcDraw(e, cv, ctx) {
+  const r = cv.getBoundingClientRect();
+  const x = (e.clientX - r.left) * cv.width  / r.width;
+  const y = (e.clientY - r.top)  * cv.height / r.height;
+  const mCtx = _mcMaskOff.getContext("2d");
+  mCtx.fillStyle = "#ff6400";
+  mCtx.beginPath();
+  mCtx.arc(x, y, _mcBrushSz / 2, 0, Math.PI * 2);
+  mCtx.fill();
+  _mcRender(cv, ctx);
+}
+
+function clearMcMask() {
+  if (!_mcMaskOff || !_mcBaseImg) return;
+  _mcMaskOff.getContext("2d").clearRect(0, 0, _mcMaskOff.width, _mcMaskOff.height);
+  const cv  = document.getElementById("mc-mask-canvas");
+  _mcRender(cv, cv.getContext("2d"));
+  maskB64 = null;
+  document.getElementById("mc-mask-hint").textContent = "Paint the defect region, then click Set";
+}
+
+function confirmMcMask() {
+  if (!_mcMaskOff || !_mcBaseImg) return;
+  // Scale the painted offscreen mask back to OK image resolution → grayscale B&W
+  const outCv  = document.createElement("canvas");
+  outCv.width  = _mcBaseImg.width;
+  outCv.height = _mcBaseImg.height;
+  const outCtx = outCv.getContext("2d");
+  outCtx.drawImage(_mcMaskOff, 0, 0, outCv.width, outCv.height);
+  // Convert: any painted pixel (R channel > 50) → white, else → black
+  const id = outCtx.getImageData(0, 0, outCv.width, outCv.height);
+  const d  = id.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const v  = d[i] > 50 ? 255 : 0;
+    d[i] = d[i+1] = d[i+2] = v; d[i+3] = 255;
+  }
+  outCtx.putImageData(id, 0, 0);
+  maskB64 = outCv.toDataURL("image/png").split(",")[1];
+  showPanel("panel-mask", maskB64);
+  document.getElementById("mc-mask-hint").textContent = "✅ Position set — click Preview";
+  document.getElementById("mc-mask-panel").style.display = "none";
+  log("MC mask position set (" + outCv.width + "×" + outCv.height + ")");
+}
+</script>
+{% endblock %}
