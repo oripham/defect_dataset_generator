@@ -33,7 +33,7 @@
               ⭕ Metal Cap / 金属キャップ
             </button>
           </div>
-          <div id="group-cap-hint"       class="small text-muted mt-2">MKA Cap — Mask-based synthesis</div>
+          <div id="group-cap-hint"       class="small text-muted mt-2">MKA Cap — CV synthesis</div>
           <div id="group-pharma-hint"    class="small text-muted mt-2" style="display:none">Capsule · Tablet — Auto Otsu mask</div>
           <div id="group-napchai-hint"   class="small text-muted mt-2" style="display:none">Metal Cap — Polar Transform + SDXL refine (optional)</div>
         </div>
@@ -290,6 +290,43 @@
             </div>
           </div>
 
+          <!-- Rim Crush params -->
+          <div id="params-can_mieng" style="display:none">
+
+            <label class="form-label small fw-semibold d-flex justify-content-between">
+              <span>Streak length</span><span id="val-streak-length" class="text-info fw-bold">1.0×</span>
+            </label>
+            <input type="range" class="form-range mb-1" id="slider-streak-length"
+                   min="0.5" max="4.0" step="0.5" value="1.0"
+                   oninput="document.getElementById('val-streak-length').textContent=parseFloat(this.value).toFixed(1)+'×'">
+            <div class="d-flex justify-content-between text-muted mb-3" style="font-size:0.7rem">
+              <span>Short nick</span><span>Long streak</span>
+            </div>
+
+            <label class="form-label small fw-semibold d-flex justify-content-between">
+              <span>Thickness <span class="text-muted fw-normal">(radial width)</span></span>
+              <span id="val-thickness" class="text-info fw-bold">1.0×</span>
+            </label>
+            <input type="range" class="form-range mb-1" id="slider-thickness"
+                   min="0.3" max="3.0" step="0.1" value="1.0"
+                   oninput="document.getElementById('val-thickness').textContent=parseFloat(this.value).toFixed(1)+'×'">
+            <div class="d-flex justify-content-between text-muted mb-3" style="font-size:0.7rem">
+              <span>Thin stripe</span><span>Wide blob</span>
+            </div>
+
+            <label class="form-label small fw-semibold d-flex justify-content-between">
+              <span>Warp strength <span class="text-muted fw-normal">(bump height)</span></span>
+              <span id="val-warp-strength" class="text-info fw-bold">1.0×</span>
+            </label>
+            <input type="range" class="form-range mb-1" id="slider-warp-strength"
+                   min="0.5" max="2.0" step="0.1" value="1.0"
+                   oninput="document.getElementById('val-warp-strength').textContent=parseFloat(this.value).toFixed(1)+'×'">
+            <div class="d-flex justify-content-between text-muted mb-2" style="font-size:0.7rem">
+              <span>Subtle</span><span>Strong bump</span>
+            </div>
+
+          </div>
+
           <!-- Seed -->
           <!-- Napchai: Ring Fracture amplitude / リング割れ振幅 -->
           <div id="params-napchai-ring" style="display:none">
@@ -450,11 +487,12 @@ const GROUPS = {
     api: "cap",
     product: "mka",
     defects: [
-      { key: "scratch",      label: "Scratch / 傷",        params: "scuff" },
-      { key: "dent",         label: "Dent / 凹み",          params: null    },
-      { key: "plastic_flow", label: "Plastic Flow / 樹脂流れ", params: null    },
-      { key: "dark_spots",   label: "Dark Spots / 黒異物",  params: "spots" },
-      { key: "thread",       label: "Thread / 糸異物",      params: null    },
+      { key: "scratch",      label: "Scratch / 傷",        params: "scuff"     },
+      { key: "dent",         label: "Dent / 凹み",          params: null        },
+      { key: "plastic_flow", label: "Plastic Flow / 樹脂流れ", params: null     },
+      { key: "dark_spots",   label: "Dark Spots / 黒異物",  params: "spots"     },
+      { key: "thread",       label: "Thread / 糸異物",      params: null        },
+      { key: "can_mieng",    label: "Rim Crush / 口つぶれ",  params: "can_mieng" },
     ],
   },
   pharma: {
@@ -535,7 +573,7 @@ function onDefectChange() {
   const paramType = entry.params;
 
   ["params-crack", "params-dent", "params-hollow", "params-polar", "params-scuff",
-   "params-spots", "params-napchai-ring", "params-plastic-flow-tune"]
+   "params-spots", "params-napchai-ring", "params-plastic-flow-tune", "params-can_mieng"]
     .forEach(id => document.getElementById(id).style.display = "none");
   document.getElementById("params-ring-jitter").style.display = "none";
 
@@ -550,6 +588,7 @@ function onDefectChange() {
   else if (paramType === "scuff")        document.getElementById("params-scuff").style.display        = "";
   else if (paramType === "spots")        document.getElementById("params-spots").style.display        = "";
   else if (paramType === "napchai-ring") document.getElementById("params-napchai-ring").style.display = "";
+  else if (paramType === "can_mieng")    document.getElementById("params-can_mieng").style.display    = "";
 
   // Plastic flow uses auto small-mask (no extra UI)
   if (currentGroup === "cap" && defectKey === "plastic_flow") {
@@ -882,6 +921,11 @@ function buildParams() {
     p.r_min       = parseInt(document.getElementById("inp-r-min").value);
     p.r_max       = parseInt(document.getElementById("inp-r-max").value);
     p.bump        = true;
+  }
+  if (defectKey === "can_mieng") {
+    p.streak_length = parseFloat(document.getElementById("slider-streak-length").value);
+    p.thickness     = parseFloat(document.getElementById("slider-thickness").value);
+    p.warp_strength = parseFloat(document.getElementById("slider-warp-strength").value);
   }
   return p;
 }

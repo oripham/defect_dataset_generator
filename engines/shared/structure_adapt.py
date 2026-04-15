@@ -15,16 +15,27 @@ Entry point: structure_adapt(base_rgb, mask, defect_type)
   Falls back to (mask, None, None) if detect_ring fails.
 """
 
-import sys
-import os
 import numpy as np
 import cv2
 
-_SCRIPTS = os.path.join(os.path.dirname(__file__), "..", "scripts")
-if _SCRIPTS not in sys.path:
-    sys.path.insert(0, os.path.abspath(_SCRIPTS))
 
-from geometry.ring_detector import detect_ring
+def detect_ring(gray: np.ndarray, tag: str = "") -> tuple:
+    """Detect the main circular ring via Hough circles. Returns (cx, cy, r)."""
+    h, w = gray.shape
+    blurred = cv2.GaussianBlur(gray, (9, 9), 2)
+    circles = cv2.HoughCircles(
+        blurred, cv2.HOUGH_GRADIENT, dp=1,
+        minDist=min(h, w) * 0.3,
+        param1=50, param2=30,
+        minRadius=int(min(h, w) * 0.25),
+        maxRadius=int(min(h, w) * 0.65),
+    )
+    if circles is None:
+        raise RuntimeError(f"No ring detected{tag}")
+    circles = np.round(circles[0]).astype(int)
+    cx_img, cy_img = w // 2, h // 2
+    best = min(circles, key=lambda c: (c[0] - cx_img) ** 2 + (c[1] - cy_img) ** 2)
+    return int(best[0]), int(best[1]), int(best[2])
 
 # Defect types cần snap lên ring edge (outer rim)
 # scratch/dent/bulge nam tren be mat phang ben trong — KHONG snap ra rim ngoai

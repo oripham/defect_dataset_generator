@@ -18,7 +18,6 @@ from __future__ import annotations
 import os
 import sys
 import uuid
-import json
 import base64
 import threading
 import glob
@@ -53,11 +52,12 @@ PRODUCTS = {
         "display": "MKA Cap",
         "data_dir": MKA_ROOT,
         "defects": {
-            "scratch":      {"display": "Scratch (Xước)",          "dir": "Xước",       "engine": "mask"},
-            "dent":         {"display": "Dent (Lõm)",              "dir": "Lõm",        "engine": "mask"},
-            "plastic_flow": {"display": "Plastic Flow (Nhựa chảy)","dir": "Nhựa_chảy", "engine": "mask"},
-            "thread":       {"display": "Thread (Dị vật chỉ)",     "dir": "Dị_vật_chỉ","engine": "mask"},
-            "dark_spots":   {"display": "Dark Spots (Dị vật đen)", "dir": "Dị_vật_đen","engine": "mask"},
+            "scratch":      {"display": "Scratch",      "dir": "Xước",        "engine": "mask"},
+            "dent":         {"display": "Dent",         "dir": "Lõm",         "engine": "mask"},
+            "plastic_flow": {"display": "Plastic Flow", "dir": "Nhựa_chảy",  "engine": "mask"},
+            "thread":       {"display": "Thread",       "dir": "Dị_vật_chỉ", "engine": "mask"},
+            "dark_spots":   {"display": "Dark Spots",   "dir": "Dị_vật_đen", "engine": "mask"},
+            "can_mieng":    {"display": "Rim Crush",    "dir": u"Cấn_miệng",  "engine": "cv"},
         },
     },
 }

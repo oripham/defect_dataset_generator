@@ -39,6 +39,7 @@ except ImportError as _e:
 
 from ..utils import encode_b64, decode_b64
 from .plastic_flow_engine import generate as _plastic_flow_generate
+from ..synthesis.mka_can_mieng import synth_can_mieng as _synth_can_mieng
 
 
 # ── Mask helpers ──────────────────────────────────────────────────────────────
@@ -188,6 +189,21 @@ def _run_dark_spots(img_bgr: np.ndarray, _mask_dir: str, params: dict):
     return result, mask_out, None
 
 
+def _run_can_mieng(img_bgr: np.ndarray, _mask_dir: str, params: dict):
+    """Rim Crush — auto-detects inner rim, no external mask needed."""
+    seed          = int(params.get("seed", 42))
+    intensity     = float(params.get("intensity", 0.7))
+    warp_strength = float(params.get("warp_strength", 1.0))
+    streak_length = float(params.get("streak_length", 1.0))
+    thickness     = float(params.get("thickness", 1.0))
+    result, dmask = _synth_can_mieng(img_bgr, seed=seed,
+                                     intensity=intensity,
+                                     warp_strength=warp_strength,
+                                     streak_length=streak_length,
+                                     thickness=thickness)
+    return result, dmask, None
+
+
 # ── Dispatch table ────────────────────────────────────────────────────────────
 
 _DISPATCH = {
@@ -196,6 +212,7 @@ _DISPATCH = {
     "plastic_flow": (_run_plastic_flow, "Nhựa_chảy"),
     "thread":       (_run_thread,       "Dị_vật_chỉ"),
     "dark_spots":   (_run_dark_spots,   "Dị_vật_đen"),
+    "can_mieng":    (_run_can_mieng,    u"Cấn_miệng"),
 }
 
 
