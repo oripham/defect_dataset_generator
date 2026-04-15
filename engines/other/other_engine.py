@@ -28,7 +28,7 @@ import traceback
 import cv2
 import numpy as np
 
-from .utils import encode_b64, decode_b64, decode_b64_gray
+from ..utils import encode_b64, decode_b64, decode_b64_gray
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

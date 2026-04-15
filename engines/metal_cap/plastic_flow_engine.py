@@ -18,21 +18,14 @@ from __future__ import annotations
 
 import base64 as _b64
 import math
-import os
-import sys
 
 import cv2
 import numpy as np
 
-from .utils import encode_b64, decode_b64
-
-# ── Import experiments.py (CV synthesis primitives) ───────────────────────────
-_ENGINES_DIR = os.path.dirname(os.path.abspath(__file__))
-if _ENGINES_DIR not in sys.path:
-    sys.path.insert(0, _ENGINES_DIR)
+from ..utils import encode_b64, decode_b64
 
 try:
-    import experiments as _exp
+    from ..synthesis import experiments as _exp
     _HAS_EXP = True
 except Exception as _e:
     _HAS_EXP = False

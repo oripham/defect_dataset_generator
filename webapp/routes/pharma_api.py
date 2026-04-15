@@ -34,7 +34,7 @@ sys.path.insert(0, str(_ROOT))
 from utils import engine_post as _engine_post
 
 try:
-    from engines.capsule_engine import generate as _ce_generate_local, auto_mask as _ce_auto_mask_local
+    from engines.pharma.capsule_engine import generate as _ce_generate_local, auto_mask as _ce_auto_mask_local
     _HAS_LOCAL_PHARMA = True
 except Exception:
     _HAS_LOCAL_PHARMA = False

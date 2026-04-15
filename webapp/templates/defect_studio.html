@@ -185,6 +185,24 @@
                    oninput="document.getElementById('val-angle').textContent=this.value+'°'">
           </div>
 
+          <!-- Pharma: Dent / Lõm -->
+          <div id="params-dent" style="display:none">
+            <label class="form-label small fw-semibold d-flex justify-content-between">
+              <span>Dent Strength / Độ lõm</span>
+              <span id="val-dent-strength" class="text-info fw-bold">1.0</span>
+            </label>
+            <input type="range" class="form-range mb-2" id="slider-dent-strength"
+                   min="0.2" max="3.0" step="0.1" value="1.0"
+                   oninput="document.getElementById('val-dent-strength').textContent=parseFloat(this.value).toFixed(2)">
+            <label class="form-label small fw-semibold d-flex justify-content-between">
+              <span>Dent Size / Kích thước</span>
+              <span id="val-dent-size" class="text-info fw-bold">0.08</span>
+            </label>
+            <input type="range" class="form-range mb-2" id="slider-dent-size"
+                   min="0.04" max="0.20" step="0.01" value="0.08"
+                   oninput="document.getElementById('val-dent-size').textContent=parseFloat(this.value).toFixed(2)">
+          </div>
+
           <!-- Pharma: Hollow / Underfill / 空洞・充填不足 -->
           <div id="params-hollow" style="display:none">
             <div class="form-check mb-2">
@@ -434,7 +452,7 @@ const GROUPS = {
     defects: [
       { key: "scratch",      label: "Scratch / 傷",        params: "scuff" },
       { key: "dent",         label: "Dent / 凹み",          params: null    },
-      { key: "plastic_flow", label: "Plastic Flow / 樹脂流れ", params: "scuff" },
+      { key: "plastic_flow", label: "Plastic Flow / 樹脂流れ", params: null    },
       { key: "dark_spots",   label: "Dark Spots / 黒異物",  params: "spots" },
       { key: "thread",       label: "Thread / 糸異物",      params: null    },
     ],
@@ -444,7 +462,7 @@ const GROUPS = {
     product: null,
     defects: [
       { key: "crack",     label: "Crack / 割れ (Tablet)",         params: "crack",  product: "round_tablet"       },
-      { key: "dent",      label: "Dent / 欠け (Tablet)",          params: null,     product: "round_tablet"       },
+      { key: "dent",      label: "Dent / 欠け (Tablet)",          params: "dent",   product: "round_tablet"       },
       { key: "hollow",    label: "Hollow / 空洞 (Capsule)",       params: "hollow", product: "elongated_capsule"  },
       { key: "underfill", label: "Underfill / 充填不足 (Capsule)", params: "hollow", product: "elongated_capsule"  },
     ],
@@ -516,12 +534,13 @@ function onDefectChange() {
   const entry     = GROUPS[currentGroup].defects.find(d => d.key === defectKey) || {};
   const paramType = entry.params;
 
-  ["params-crack", "params-hollow", "params-polar", "params-scuff",
+  ["params-crack", "params-dent", "params-hollow", "params-polar", "params-scuff",
    "params-spots", "params-napchai-ring", "params-plastic-flow-tune"]
     .forEach(id => document.getElementById(id).style.display = "none");
   document.getElementById("params-ring-jitter").style.display = "none";
 
   if      (paramType === "crack")        document.getElementById("params-crack").style.display        = "";
+  else if (paramType === "dent")         document.getElementById("params-dent").style.display         = "";
   else if (paramType === "hollow")       document.getElementById("params-hollow").style.display       = "";
   else if (paramType === "polar")        document.getElementById("params-polar").style.display        = "";
   else if (paramType === "polar_ring") {
@@ -817,6 +836,10 @@ function buildParams() {
     p.angle = angleRandom
       ? Math.floor(Math.random() * 8) * 45
       : parseFloat(document.getElementById("slider-angle").value);
+  }
+  if (defectKey === "dent") {
+    p.dent_strength = parseFloat(document.getElementById("slider-dent-strength").value);
+    p.dent_size     = parseFloat(document.getElementById("slider-dent-size").value);
   }
   if (defectKey === "hollow" || defectKey === "underfill") {
     p.fixed_region = document.getElementById("chk-fixed-region").checked;

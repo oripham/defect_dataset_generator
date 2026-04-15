@@ -35,7 +35,7 @@ sys.path.insert(0, str(_ROOT))
 from utils import engine_post as _engine_post
 
 try:
-    from engines.other_engine import generate as _other_generate_local
+    from engines.other.other_engine import generate as _other_generate_local
     _HAS_LOCAL_OTHER = True
 except Exception:
     _HAS_LOCAL_OTHER = False

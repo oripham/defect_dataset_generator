@@ -39,8 +39,8 @@ from generator_classical import (
     generate_shaded_warp,
     generate_elastic_warp,
 )
-from .utils import encode_b64, decode_b64
-from .structure_adapt import structure_adapt as _structure_adapt
+from ..utils import encode_b64, decode_b64
+from ..shared.structure_adapt import structure_adapt as _structure_adapt
 
 # ── SDXL Refiner singleton (lazy-loaded, optional) ────────────────────────────
 _sdxl_refiner = None

@@ -17,7 +17,6 @@ The `mask` param from router is IGNORED for pharma (auto-detected internally).
 
 from __future__ import annotations
 
-import sys
 import os
 import base64
 import cv2
@@ -30,25 +29,20 @@ _DATA_ROOT = os.path.normpath(
 if not os.path.isdir(_DATA_ROOT):
     _DATA_ROOT = r"V:\defect_samples"
 
-# ── Import synthesis modules (bundled inside engines/) ────────────────────────
-_ENGINES_DIR = os.path.dirname(os.path.abspath(__file__))
-if _ENGINES_DIR not in sys.path:
-    sys.path.insert(0, _ENGINES_DIR)
-
 try:
-    import capsule_experiments as _ce
+    from ..synthesis import capsule_experiments as _ce
     _HAS_CE = True
 except ImportError as _e:
     _HAS_CE = False
     _CE_ERR = str(_e)
 
 try:
-    from thuoc_tron_generate_dataset import synth_dent as _synth_dent_tron, synth_chip as _synth_chip_tron
+    from ..synthesis.thuoc_tron_generate_dataset import synth_dent as _synth_dent_tron, synth_chip as _synth_chip_tron
     _HAS_DENT_TRON = True
 except Exception:
     _HAS_DENT_TRON = False
 
-from .utils import encode_b64, decode_b64
+from ..utils import encode_b64, decode_b64
 
 
 # ── Public: auto-mask ─────────────────────────────────────────────────────────
@@ -144,18 +138,21 @@ def _run_dent(img_bgr: np.ndarray, mask: np.ndarray,
     just pass the full OK image, synth_dent handles detect + placement internally.
     Returns (result_bgr, defect_mask) tuple.
     """
-    seed      = int(params.get("seed", 42))
-    intensity = float(params.get("intensity", 0.7))
+    seed         = int(params.get("seed", 42))
+    intensity    = float(params.get("intensity", 0.7))
+    dent_strength = float(params.get("dent_strength", 1.0))
+    dent_size     = float(params.get("dent_size", 0.08))
     if _HAS_DENT_TRON:
         # Pass full img_bgr — synth_dent calls detect_pill_mask internally
-        result, dmask = _synth_dent_tron(img_bgr, seed=seed, intensity=intensity)
+        result, dmask = _synth_dent_tron(img_bgr, seed=seed, intensity=intensity,
+                                          dent_strength=dent_strength, dent_size=dent_size)
         # If no change detected (detect_pill_mask failed), result == original
         # Try with flipped threshold (light pill on dark bg)
         if np.abs(result.astype(np.float32) - img_bgr.astype(np.float32)).mean() < 0.5:
             img_inv = cv2.bitwise_not(img_bgr)
-            result_inv, dmask_inv = _synth_dent_tron(img_inv, seed=seed, intensity=intensity)
+            result_inv, dmask_inv = _synth_dent_tron(img_inv, seed=seed, intensity=intensity,
+                                                      dent_strength=dent_strength, dent_size=dent_size)
             if np.abs(result_inv.astype(np.float32) - img_inv.astype(np.float32)).mean() > 0.5:
-                # Apply the dent delta from inverted space to original
                 delta = result_inv.astype(np.int16) - img_inv.astype(np.int16)
                 result = np.clip(img_bgr.astype(np.int16) - delta, 0, 255).astype(np.uint8)
                 dmask = dmask_inv

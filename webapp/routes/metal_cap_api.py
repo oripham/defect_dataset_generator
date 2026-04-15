@@ -40,7 +40,7 @@ sys.path.insert(0, str(_ROOT))
 from utils import engine_post as _engine_post
 
 try:
-    from engines.napchai_engine import generate as _nc_generate_local
+    from engines.metal_cap.napchai_engine import generate as _nc_generate_local
     _HAS_LOCAL_NAPCHAI = True
 except Exception:
     _HAS_LOCAL_NAPCHAI = False

@@ -18,7 +18,7 @@ _SCRIPTS_ROOT = "V:/HondaPlus/defect_dataset_generator/scripts"
 for _p in [_ENGINE_ROOT, _SCRIPTS_ROOT]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
-from engines.fast_physics import generate as _fp_generate
+from engines.core.fast_physics import generate as _fp_generate
 from engines.utils import decode_b64
 
 ROOT       = "V:/defect_samples"

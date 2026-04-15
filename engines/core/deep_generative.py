@@ -33,8 +33,8 @@ _SCRIPTS = os.path.join(os.path.dirname(__file__), "..", "scripts")
 if _SCRIPTS not in sys.path:
     sys.path.insert(0, os.path.abspath(_SCRIPTS))
 
-from .utils import encode_b64, decode_b64
-from .structure_adapt import structure_adapt as _structure_adapt
+from ..utils import encode_b64, decode_b64
+from ..shared.structure_adapt import structure_adapt as _structure_adapt
 
 
 import cv2 as _cv2

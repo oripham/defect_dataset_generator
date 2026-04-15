@@ -26,7 +26,7 @@ import base64
 import cv2
 import numpy as np
 
-from .utils import encode_b64, decode_b64
+from ..utils import encode_b64, decode_b64
 
 
 # ── Polar transform constants ──────────────────────────────────────────────────

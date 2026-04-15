@@ -15,7 +15,6 @@ Defect types and their synthesis strategy:
 """
 from __future__ import annotations
 
-import sys
 import os
 import base64
 import glob
@@ -34,26 +33,21 @@ if not os.path.isdir(_DATA_ROOT):
     _DATA_ROOT = r"V:\defect_samples"
 _MKA_ROOT = os.path.join(_DATA_ROOT, "MKA")
 
-# ── Import synthesis modules (bundled inside engines/) ────────────────────────
-_ENGINES_DIR = os.path.dirname(os.path.abspath(__file__))
-if _ENGINES_DIR not in sys.path:
-    sys.path.insert(0, _ENGINES_DIR)
-
 try:
-    import cap_experiments as _cap
+    from ..synthesis import cap_experiments as _cap
     _HAS_CAP = True
 except ImportError as _e:
     _HAS_CAP = False
     _CAP_ERR = str(_e)
 
 try:
-    import experiments as _exp
+    from ..synthesis import experiments as _exp
     _HAS_EXP = True
 except ImportError as _e2:
     _HAS_EXP = False
     _EXP_ERR = str(_e2)
 
-from .utils import encode_b64, decode_b64
+from ..utils import encode_b64, decode_b64
 
 POLAR_H = 720
 POLAR_W = 512
@@ -239,7 +233,7 @@ def _run_dent(img_bgr: np.ndarray, _mask_dir: str, params: dict):
 
     # Call fast_physics the same way experiments.py does
     try:
-        from . import fast_physics as _fp
+        from ..core import fast_physics as _fp
         img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
         fp_params = {
             "intensity":         intensity,

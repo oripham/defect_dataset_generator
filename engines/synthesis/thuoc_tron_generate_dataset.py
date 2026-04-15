@@ -185,11 +185,17 @@ def _hough_circle_on_pill(ok_bgr: np.ndarray, pill_mask_u8: np.ndarray) -> tuple
     return cx, cy, r
 
 
-def synth_dent(ok_bgr: np.ndarray, seed: int, intensity: float) -> tuple[np.ndarray, np.ndarray]:
+def synth_dent(ok_bgr: np.ndarray, seed: int, intensity: float,
+               dent_strength: float = 1.0, dent_size: float = 0.08) -> tuple[np.ndarray, np.ndarray]:
     """
-    Lõm (simple pharma): vùng tròn/gần tròn tone khác xung quanh (không specular).
-    - Random nhiều vị trí nhưng tránh sát viền (dựa trên Hough circle).
-    - Mục tiêu: giống "lõm thuốc" dạng đổi tone/texture nhẹ, không tạo chấm trắng highlight.
+    Lõm thuốc bột nén — physical spherical-cap model.
+
+    Nguyên tắc vật lý (ánh sáng khuếch tán từ trên):
+      - Vành dent (rim): bề mặt nghiêng → pháp tuyến lệch khỏi nguồn sáng → tối hơn
+      - Tâm dent: bề mặt phẳng → pháp tuyến hướng lên → sáng như bình thường hoặc hơi sáng hơn
+      - Kết quả: vòng tối xung quanh dent, tâm sáng → trông có chiều sâu 3D thật
+
+    Trước đây: tô đen đều → trông như vết bẩn, không có texture lõm.
     """
     rng = np.random.default_rng(seed)
     mask = detect_pill_mask(ok_bgr)
@@ -199,119 +205,88 @@ def synth_dent(ok_bgr: np.ndarray, seed: int, intensity: float) -> tuple[np.ndar
     x, y, w, h = bb
     H, W = ok_bgr.shape[:2]
 
-    # --- 1) Small dent mask (ellipse-ish) ---
-    # Random position inside pill (not fixed at outer rim), but avoid exact center
-    # to prevent a "bullseye" dot. Use Hough circle when available.
+    # ── 1. Vị trí dent (trong viên thuốc, tránh viền) ──────────────────────────
     circ = _hough_circle_on_pill(ok_bgr, mask)
     if circ is None:
-        ccx = x + w * 0.5
-        ccy = y + h * 0.5
-        rr = 0.48 * float(min(w, h))
+        ccx, ccy, rr = x + w * 0.5, y + h * 0.5, 0.48 * float(min(w, h))
     else:
-        ccx, ccy, rr = circ
+        ccx, ccy, rr = float(circ[0]), float(circ[1]), float(circ[2])
+
     ang_pos = float(rng.uniform(0, 2 * np.pi))
-    # sample radius fraction: mostly interior, avoid exact center and extreme rim
-    # (beta gives more natural distribution than uniform ring)
-    rad_frac = float(rng.beta(2.0, 2.2))  # ~peaks near mid
-    # user request: "không nằm ở viền" -> cap at ~0.65R
-    rad_frac = float(np.clip(rad_frac, 0.20, 0.65))
-    cx = float(ccx) + rr * rad_frac * float(np.cos(ang_pos))
-    cy = float(ccy) + rr * rad_frac * float(np.sin(ang_pos))
-    cx = float(np.clip(cx, x + 3, x + w - 4))
-    cy = float(np.clip(cy, y + 3, y + h - 4))
+    rad_frac = float(np.clip(rng.beta(2.0, 2.2), 0.20, 0.65))
+    cx = float(np.clip(ccx + rr * rad_frac * np.cos(ang_pos), x + 3, x + w - 4))
+    cy = float(np.clip(ccy + rr * rad_frac * np.sin(ang_pos), y + 3, y + h - 4))
 
-    # near-circular dent region (slight ellipse), soft feather
-    r0 = max(6.0, float(min(w, h)) * float(rng.uniform(0.05, 0.10)))
-    ax = r0 * float(rng.uniform(0.90, 1.15))
-    ay = r0 * float(rng.uniform(0.90, 1.15))
-    ang2 = float(rng.uniform(0.0, 180.0))
-    dmask = np.zeros((H, W), dtype=np.uint8)
-    cv2.ellipse(dmask, (int(cx), int(cy)), (int(ax), int(ay)), ang2, 0, 360, 255, -1, cv2.LINE_AA)
-    dmask = cv2.bitwise_and(dmask, mask)
-    if cv2.countNonZero(dmask) < 20:
-        return ok_bgr.copy(), np.zeros((H, W), dtype=np.uint8)
+    # ── 2. Kích thước dent — có thể điều chỉnh qua dent_size ───────────────────
+    # dent_size: tỉ lệ so với đường kính viên (0.04–0.20), default 0.08
+    size_frac = float(np.clip(dent_size, 0.04, 0.20))
+    r_dent = max(5.0, float(min(w, h)) * size_frac * float(rng.uniform(0.85, 1.15)))
+    ax = r_dent * float(rng.uniform(0.85, 1.20))
+    ay = r_dent * float(rng.uniform(0.85, 1.20))
+    ang_tilt = float(rng.uniform(0.0, 180.0))
 
-    # Make rim less smooth: add "watery" irregular edge/streaks (pharma dent often has wet-looking boundary)
-    # Build an edge band from the mask
-    edge = cv2.morphologyEx(dmask, cv2.MORPH_GRADIENT, np.ones((5, 5), np.uint8))
-    edge_f = cv2.GaussianBlur((edge > 0).astype(np.float32), (0, 0), 1.0)
-    edge_f *= (mask.astype(np.float32) / 255.0)
-
-    # Directional streak noise (broken watery rim)
-    n_edge = rng.normal(0.0, 1.0, (H, W)).astype(np.float32)
-    n_edge = cv2.GaussianBlur(n_edge, (0, 0), float(rng.uniform(2.0, 4.0)))
-    n_edge = (n_edge - float(n_edge.min())) / (float(n_edge.max() - n_edge.min()) + 1e-6) - 0.5
-    # Small directional blur to create streaks
-    ang_s = float(rng.uniform(0, 180.0))
-    L = int(rng.integers(11, 23)) | 1
-    k = np.zeros((L, L), np.float32)
-    cv2.line(k, (0, L // 2), (L - 1, L // 2), 1.0, 1)
-    M = cv2.getRotationMatrix2D((L / 2, L / 2), ang_s, 1.0)
-    k = cv2.warpAffine(k, M, (L, L))
-    k /= float(k.sum() + 1e-6)
-    streak = cv2.filter2D(n_edge, -1, k)
-    streak = cv2.GaussianBlur(streak, (0, 0), 1.0)
-    streak = np.clip(streak, -0.6, 0.6)
-
-    # Soft alpha for blending tone change
-    # tighter feather so dent is more visible (still soft edge)
-    alpha = cv2.GaussianBlur((dmask > 0).astype(np.float32), (0, 0), float(rng.uniform(1.6, 3.2)))
-    alpha *= (mask.astype(np.float32) / 255.0)
-    alpha = np.clip(alpha, 0.0, 1.0)
-    # Break the smooth rim slightly using streak noise only on the edge band
-    alpha = np.clip(alpha * (1.0 + streak * 0.35 * edge_f), 0.0, 1.0)
-    a3 = alpha[:, :, None]
-
-    # Slight tone difference: darker (or slightly lighter) than surrounding, no highlights
-    inten = float(np.clip(intensity, 0.0, 1.0))
-    gray = cv2.cvtColor(ok_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
-    bg = float(np.median(gray[mask > 127])) if (mask > 127).any() else float(np.median(gray))
-    # delta in DN (keep subtle)
-    dn = float(rng.uniform(18.0, 32.0)) * (0.75 + 0.75 * inten)
-    # almost always darker for pharma dents
-    sign = -1.0 if float(rng.random()) < 0.96 else 1.0
-    target_gray = np.clip(gray + sign * dn, 0, 255)
-
-    # Build target BGR as gray shift but preserve some original chroma (pharma grayscale anyway)
-    target = ok_bgr.astype(np.float32).copy()
-    for c in range(3):
-        target[:, :, c] = np.clip(target[:, :, c] + (target_gray - gray) * 0.9, 0, 255)
-
-    # Watery rim tone variation: slightly darker blobs along the edge (irregular boundary)
-    rim_dn = float(rng.uniform(6.0, 14.0)) * (0.7 + 0.8 * inten)
-    rim = np.clip(edge_f * (0.7 + 0.6 * np.abs(streak)), 0.0, 1.0)
-    for c in range(3):
-        target[:, :, c] = np.clip(target[:, :, c] - rim_dn * rim, 0, 255)
-
-    # Add gentle internal gradient (dent cue) without creating a black dot:
-    # slightly darker toward one side + mild center falloff
+    # ── 3. Hệ tọa độ chuẩn hóa trong ellipse của dent ─────────────────────────
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
-    dx = (xx - float(cx)) / (float(ax) + 1e-6)
-    dy = (yy - float(cy)) / (float(ay) + 1e-6)
-    rnorm = np.clip(np.sqrt(dx * dx + dy * dy), 0.0, 1.0)
-    # side shading direction
-    s_ang = float(rng.uniform(0, 2 * np.pi))
-    side = (dx * np.cos(s_ang) + dy * np.sin(s_ang))
-    grad = (0.6 * (1.0 - rnorm) + 0.4 * (-side + 1.0) / 2.0)
-    grad = np.clip(grad, 0.0, 1.0) * alpha
-    # apply as slight darkening (2..7 DN)
-    gdn = float(rng.uniform(4.0, 10.0)) * (0.8 + 0.7 * inten)
+    cos_a, sin_a = float(np.cos(np.radians(ang_tilt))), float(np.sin(np.radians(ang_tilt)))
+    dx = xx - cx;  dy = yy - cy
+    dx_r =  cos_a * dx + sin_a * dy
+    dy_r = -sin_a * dx + cos_a * dy
+    r_norm = np.sqrt((dx_r / (ax + 1e-6))**2 + (dy_r / (ay + 1e-6))**2)  # 0=tâm, 1=viền
+
+    inside = r_norm < 1.0
+
+    # ── 4. Spherical-cap height field: h(r)=sqrt(1-r²), 1 ở tâm, 0 ở viền ────
+    h_cap = np.where(inside, np.sqrt(np.clip(1.0 - r_norm**2, 0.0, 1.0)), 0.0).astype(np.float32)
+
+    inten = float(np.clip(intensity, 0.0, 1.0))
+
+    # ── 5. Alpha mask — Gaussian mềm, không hard edge, không viền tối ──────────
+    # Dent chỉ lõm xuống → viền mờ dần tự nhiên như ảnh thật
+    sigma_r = float(rng.uniform(0.38, 0.52))   # sigma theo đơn vị r_norm
+    alpha_dent = np.exp(-(r_norm**2) / (2.0 * sigma_r**2))
+    blur_k = max(3, int(r_dent * 0.6)) | 1
+    alpha_dent = cv2.GaussianBlur(alpha_dent.astype(np.float32), (blur_k, blur_k), 0)
+    alpha_dent *= mask.astype(np.float32) / 255.0
+    alpha_dent = np.clip(alpha_dent, 0.0, 1.0)
+
+    # ── 6. Tối toàn vùng — scale bởi dent_strength ──────────────────────────────
+    ds = float(np.clip(dent_strength, 0.2, 4.0))
+    base_dn = float(rng.uniform(25, 45)) * (0.5 + 0.8 * inten) * ds
+
+    # Shading hướng nhẹ (1 phía tối hơn một chút) → cảm giác có chiều sâu
+    light_ang = float(rng.uniform(0, 2 * np.pi))
+    side = (dx_r / (ax + 1e-6)) * np.cos(light_ang) + (dy_r / (ay + 1e-6)) * np.sin(light_ang)
+    directional = np.clip(side, -1.0, 1.0) * base_dn * 0.30
+
+    # ── 7. Texture bột bên trong — đa tầng, mờ dần ra ngoài ────────────────────
+    # Tầng coarse (σ~4-7px)
+    n_c = rng.normal(0.0, 1.0, (H, W)).astype(np.float32)
+    n_c = cv2.GaussianBlur(n_c, (0, 0), float(rng.uniform(4.0, 7.0)))
+    n_c = (n_c - n_c.min()) / (n_c.max() - n_c.min() + 1e-6) - 0.5
+
+    # Tầng medium (σ~2-3.5px)
+    n_m = rng.normal(0.0, 1.0, (H, W)).astype(np.float32)
+    n_m = cv2.GaussianBlur(n_m, (0, 0), float(rng.uniform(2.0, 3.5)))
+    n_m = (n_m - n_m.min()) / (n_m.max() - n_m.min() + 1e-6) - 0.5
+
+    # Tầng fine (σ~1px)
+    n_f = rng.normal(0.0, 1.0, (H, W)).astype(np.float32)
+    n_f = cv2.GaussianBlur(n_f, (0, 0), 1.0)
+    n_f = (n_f - n_f.min()) / (n_f.max() - n_f.min() + 1e-6) - 0.5
+
+    grain = n_c * 0.50 + n_m * 0.35 + n_f * 0.15
+    grain_amp = float(rng.uniform(35, 55)) * (0.7 + 0.7 * inten) * ds
+    texture = grain * grain_amp * alpha_dent
+
+    # ── 8. Tổng hợp ────────────────────────────────────────────────────────────
+    total_shift = (-(base_dn + directional) * alpha_dent + texture)
+
+    result = ok_bgr.astype(np.float32).copy()
     for c in range(3):
-        target[:, :, c] = np.clip(target[:, :, c] - gdn * grad, 0, 255)
+        result[:, :, c] = np.clip(result[:, :, c] + total_shift, 0.0, 255.0)
 
-    # Add very subtle mottling inside dent (texture like shallow dent)
-    n = rng.normal(0.0, 1.0, (H, W)).astype(np.float32)
-    n = cv2.GaussianBlur(n, (0, 0), 1.4)
-    n = (n - float(n.min())) / (float(n.max() - n.min()) + 1e-6) - 0.5
-    mott = n * float(rng.uniform(6.0, 13.0)) * (0.85 + 0.75 * inten)
-    for c in range(3):
-        target[:, :, c] = np.clip(target[:, :, c] + mott * alpha, 0, 255)
-
-    out = ok_bgr.astype(np.float32) * (1.0 - a3) + target * a3
-    out = np.clip(out, 0, 255).astype(np.uint8)
-
-    dmask_dbg = (alpha > 0.35).astype(np.uint8) * 255
-    dmask_dbg = cv2.bitwise_and(dmask_dbg, mask)
+    out = result.astype(np.uint8)
+    dmask_dbg = ((alpha_dent > 0.25) & (mask > 127)).astype(np.uint8) * 255
     return out, dmask_dbg
 
 

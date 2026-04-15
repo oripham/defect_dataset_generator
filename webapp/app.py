@@ -80,8 +80,6 @@ def save_state(response):
 # --- Register Blueprints ---
 from routes.views import views_bp
 from routes.setup_api import setup_bp
-from routes.mask_api import mask_bp
-from routes.gen_api import gen_bp
 from routes.pharma_api import pharma_bp
 from routes.cap_api import cap_bp
 from routes.metal_cap_api import metal_cap_bp
@@ -89,8 +87,6 @@ from routes.other_api import other_bp
 
 app.register_blueprint(views_bp)
 app.register_blueprint(setup_bp)
-app.register_blueprint(mask_bp)
-app.register_blueprint(gen_bp)
 app.register_blueprint(pharma_bp)
 app.register_blueprint(cap_bp)
 app.register_blueprint(metal_cap_bp)

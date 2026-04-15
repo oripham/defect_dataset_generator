@@ -29,8 +29,8 @@ import cv2
 import numpy as np
 from PIL import Image as _PIL
 
-from .utils import encode_b64, decode_b64
-from ._napchai_models import get_pipe, get_depth_est, get_lock
+from ..utils import encode_b64, decode_b64
+from ..models._napchai_models import get_pipe, get_depth_est, get_lock
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 POLAR_H = 720

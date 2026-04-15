@@ -14,7 +14,6 @@ API endpoint: POST /api/cap/preview
 """
 from __future__ import annotations
 
-import sys
 import os
 import base64
 import glob
@@ -31,19 +30,14 @@ if not os.path.isdir(_DATA_ROOT):
     _DATA_ROOT = r"V:\defect_samples"
 _MKA_ROOT = os.path.join(_DATA_ROOT, "MKA")
 
-# ── Import synthesis module (bundled inside engines/) ─────────────────────────
-_ENGINES_DIR = os.path.dirname(os.path.abspath(__file__))
-if _ENGINES_DIR not in sys.path:
-    sys.path.insert(0, _ENGINES_DIR)
-
 try:
-    import experiments as _exp
+    from ..synthesis import experiments as _exp
     _HAS_EXP = True
 except ImportError as _e:
     _HAS_EXP = False
     _EXP_ERR = str(_e)
 
-from .utils import encode_b64, decode_b64
+from ..utils import encode_b64, decode_b64
 from .plastic_flow_engine import generate as _plastic_flow_generate
 
 
@@ -118,7 +112,7 @@ def _run_dent(img_bgr: np.ndarray, _mask_dir: str, params: dict):
     mask  = _exp.place_mask_random(patch, bbox, img_bgr.shape[:2],
                                    np.random.default_rng(seed + 1), rotate=True)
     try:
-        from . import fast_physics as _fp
+        from ..core import fast_physics as _fp
         img_rgb   = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
         res       = _fp.generate(img_rgb, mask, "dent", "metal", {
             "intensity": intensity, "naturalness": 0.6,

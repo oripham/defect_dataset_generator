@@ -34,7 +34,7 @@ _SCRIPTS = os.path.join(os.path.dirname(__file__), "..", "scripts")
 if os.path.abspath(_SCRIPTS) not in sys.path:
     sys.path.insert(0, os.path.abspath(_SCRIPTS))
 
-from .router_engine import route, get_default_engine
+from .core.router_engine import route, get_default_engine
 from .utils import decode_b64, decode_b64_gray
 
 # ── Lazy engine imports (only load when first used) ───────────────────────────
@@ -50,32 +50,32 @@ _scratch_napchai_generate = None
 def _load_cap():
     global _cap_generate, _cap_detect_circle
     if _cap_generate is None:
-        from .mka_cap_engine import generate as _g
-        from .cap_engine import detect_circle_info as _d
+        from .metal_cap.mka_cap_engine import generate as _g
+        from .metal_cap.cap_engine import detect_circle_info as _d
         _cap_generate = _g; _cap_detect_circle = _d
 
 def _load_pharma():
     global _pharma_generate, _pharma_auto_mask
     if _pharma_generate is None:
-        from .capsule_engine import generate as _g, auto_mask as _a
+        from .pharma.capsule_engine import generate as _g, auto_mask as _a
         _pharma_generate = _g; _pharma_auto_mask = _a
 
 def _load_mc_deform():
     global _mc_deform_generate
     if _mc_deform_generate is None:
-        from .mc_deform_engine import generate as _g
+        from .metal_cap.mc_deform_engine import generate as _g
         _mc_deform_generate = _g
 
 def _load_ring_fracture():
     global _ring_fracture_generate
     if _ring_fracture_generate is None:
-        from .ring_fracture_engine import generate as _g
+        from .metal_cap.ring_fracture_engine import generate as _g
         _ring_fracture_generate = _g
 
 def _load_scratch_napchai():
     global _scratch_napchai_generate
     if _scratch_napchai_generate is None:
-        from .scratch_napchai_engine import generate as _g
+        from .metal_cap.scratch_napchai_engine import generate as _g
         _scratch_napchai_generate = _g
 
 
@@ -299,7 +299,7 @@ def get_progress():
     Used by webapp to show step N/total during SDXL generation.
     """
     try:
-        from .deep_generative import _gen_progress
+        from .core.deep_generative import _gen_progress
         return _gen_progress
     except Exception:
         return {"status": "idle", "queued": 0, "defect_type": "",
@@ -410,6 +410,41 @@ _METAL_CAP_LOADERS = {
     "ring_fracture": (_load_ring_fracture,   lambda: _ring_fracture_generate),
     "scratch":       (_load_scratch_napchai, lambda: _scratch_napchai_generate),
 }
+
+# Other engine (unclassified defects)
+_other_generate = None
+
+def _load_other():
+    global _other_generate
+    if _other_generate is None:
+        from .other.other_engine import generate as _g
+        _other_generate = _g
+
+
+class _OtherPreviewReq(_BM):
+    image_b64:     str
+    mask_b64:      Optional[str] = None
+    ref_image_b64: Optional[str] = None
+    params:        dict = {}
+
+
+@app.post("/api/other/preview")
+def other_preview(req: _OtherPreviewReq):
+    import traceback as _tb
+    _load_other()
+    try:
+        result = _other_generate(
+            base_image_b64=req.image_b64,
+            mask_b64=req.mask_b64,
+            ref_image_b64=req.ref_image_b64,
+            params=req.params or {},
+        )
+    except Exception as _e:
+        _tb.print_exc()
+        raise HTTPException(status_code=500, detail=f"Unhandled exception: {_e}")
+    if isinstance(result, dict) and result.get("error"):
+        raise HTTPException(status_code=500, detail=str(result["error"]))
+    return result
 
 
 @app.post("/api/metal_cap/preview")
