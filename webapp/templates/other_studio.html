@@ -32,12 +32,20 @@
       <hr class="border-secondary my-2">
 
       <!-- Mask drawing toggle -->
-      <label class="form-label small fw-semibold text-info">3. Draw Defect Mask (optional)</label>
-      <div class="d-flex gap-2 mb-2">
-        <button id="btn-draw" class="btn btn-outline-info btn-sm flex-grow-1" onclick="toggleDraw()">
-          ✏️ Draw Mask
-        </button>
-        <button class="btn btn-outline-secondary btn-sm" onclick="clearMask()">🗑️ Clear</button>
+      <label class="form-label small fw-semibold text-info">3. Draw Masks (for Alignment)</label>
+      <div class="d-flex flex-column gap-2 mb-2">
+        <div class="d-flex gap-2">
+          <button id="btn-draw-ok" class="btn btn-outline-info btn-sm flex-grow-1" onclick="toggleDraw('ok')">
+            ✏️ Draw on OK
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" onclick="clearMask('ok')">🗑️</button>
+        </div>
+        <div class="d-flex gap-2">
+          <button id="btn-draw-ng" class="btn btn-outline-info btn-sm flex-grow-1" onclick="toggleDraw('ng')">
+            ✏️ Draw on NG
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" onclick="clearMask('ng')">🗑️</button>
+        </div>
       </div>
       <div class="d-flex align-items-center gap-2 mb-3">
         <span class="small text-muted">Brush:</span>
@@ -61,6 +69,11 @@
       <div class="input-group input-group-sm mb-3">
         <input type="number" id="inp-seed" class="form-control bg-dark border-secondary text-light" value="42">
         <button class="btn btn-outline-secondary" onclick="randomSeed()" title="Random">🎲</button>
+      </div>
+
+      <div class="form-check form-switch mb-3">
+        <input class="form-check-input" type="checkbox" id="chk-use-ai">
+        <label class="form-check-label small fw-semibold" for="chk-use-ai">✨ Use AI (SDXL)</label>
       </div>
 
       <!-- Category for save -->
@@ -88,11 +101,11 @@
     <!-- 2×2 canvas grid -->
     <div class="d-grid gap-2" style="grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr">
       <div class="position-relative">
-        <div class="small text-muted mb-1">OK Image <span class="text-info" id="draw-indicator" style="display:none">(Drawing mask...)</span></div>
+        <div class="small text-muted mb-1">OK Image <span class="text-info" id="draw-indicator-ok" style="display:none">(Drawing mask...)</span></div>
         <canvas id="canvas-ok" class="w-100 rounded border border-secondary" style="max-height:300px;object-fit:contain;background:#111"></canvas>
       </div>
-      <div>
-        <div class="small text-muted mb-1">NG Reference</div>
+      <div class="position-relative">
+        <div class="small text-muted mb-1">NG Reference <span class="text-danger" id="draw-indicator-ng" style="display:none">(Drawing mask...)</span></div>
         <canvas id="canvas-ng" class="w-100 rounded border border-secondary" style="max-height:300px;object-fit:contain;background:#111"></canvas>
       </div>
       <div>
@@ -180,26 +193,29 @@
 let okImageB64  = null;
 let ngImageB64  = null;
 let resultB64   = null;
-let maskB64     = null;
+let maskOkB64   = null;
+let maskNgB64   = null;
 let isDrawing   = false;
-let drawMode    = false;
+let activeTarget = null; // 'ok' or 'ng'
 let batchJobId  = null;
 let batchTimer  = null;
 
-// Mask canvas overlay state
-let maskCanvas  = null;
-let maskCtx     = null;
+// Mask canvases
+let maskCanvasOk = null;
+let maskCanvasNg = null;
+let maskCtxOk    = null;
+let maskCtxNg    = null;
 
 // ── OK / NG Upload ────────────────────────────────────────────────────────────
 function onOkUpload(input) {
   const file = input.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = e => {
+  reader.onload = async e => {
     const dataUrl = e.target.result;
     okImageB64 = dataUrl.split(',')[1];
-    drawToCanvas('canvas-ok', dataUrl);
-    initMaskCanvas();
+    await drawToCanvas('canvas-ok', dataUrl);
+    initMaskCanvas('ok');
     status('OK image loaded');
   };
   reader.readAsDataURL(file);
@@ -209,79 +225,103 @@ function onNgUpload(input) {
   const file = input.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = e => {
+  reader.onload = async e => {
     const dataUrl = e.target.result;
     ngImageB64 = dataUrl.split(',')[1];
-    drawToCanvas('canvas-ng', dataUrl);
+    await drawToCanvas('canvas-ng', dataUrl);
+    initMaskCanvas('ng');
     status('NG reference loaded');
   };
   reader.readAsDataURL(file);
 }
 
 // ── Mask Drawing ──────────────────────────────────────────────────────────────
-function initMaskCanvas() {
-  const okCanvas = document.getElementById('canvas-ok');
-  // Create overlay canvas for mask drawing (same size, absolute positioned)
-  if (!maskCanvas) {
-    maskCanvas = document.createElement('canvas');
-    maskCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;cursor:crosshair;pointer-events:none;opacity:0.5';
-    okCanvas.parentElement.appendChild(maskCanvas);
+function initMaskCanvas(type) {
+  const targetCanvas = document.getElementById(`canvas-${type}`);
+  let canvas = type === 'ok' ? maskCanvasOk : maskCanvasNg;
+  
+  if (!canvas) {
+    canvas = document.createElement('canvas');
+    canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;cursor:crosshair;pointer-events:none;opacity:0.5';
+    targetCanvas.parentElement.appendChild(canvas);
+    if (type === 'ok') maskCanvasOk = canvas; else maskCanvasNg = canvas;
   }
-  maskCanvas.width  = okCanvas.width;
-  maskCanvas.height = okCanvas.height;
-  maskCtx = maskCanvas.getContext('2d');
-  maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+  
+  canvas.width  = targetCanvas.width;
+  canvas.height = targetCanvas.height;
+  const ctx = canvas.getContext('2d');
+  if (type === 'ok') maskCtxOk = ctx; else maskCtxNg = ctx;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 }
 
-function toggleDraw() {
-  drawMode = !drawMode;
-  const btn = document.getElementById('btn-draw');
-  const indicator = document.getElementById('draw-indicator');
-  if (drawMode) {
+function toggleDraw(type) {
+  if (activeTarget && activeTarget !== type) {
+    toggleDraw(activeTarget); // close other
+  }
+
+  const isOpen = activeTarget === type;
+  const btn = document.getElementById(`btn-draw-${type}`);
+  const indicator = document.getElementById(`draw-indicator-${type}`);
+  const canvas = type === 'ok' ? maskCanvasOk : maskCanvasNg;
+
+  if (!isOpen) {
+    activeTarget = type;
     btn.classList.replace('btn-outline-info', 'btn-info');
     btn.textContent = '✏️ Drawing...';
     indicator.style.display = '';
-    if (maskCanvas) maskCanvas.style.pointerEvents = 'auto';
-    enableDrawEvents();
+    if (canvas) canvas.style.pointerEvents = 'auto';
+    enableDrawEvents(type);
   } else {
+    activeTarget = null;
     btn.classList.replace('btn-info', 'btn-outline-info');
-    btn.textContent = '✏️ Draw Mask';
+    btn.textContent = type === 'ok' ? '✏️ Draw on OK' : '✏️ Draw on NG';
     indicator.style.display = 'none';
-    if (maskCanvas) maskCanvas.style.pointerEvents = 'none';
-    extractMask();
+    if (canvas) canvas.style.pointerEvents = 'none';
+    extractMask(type);
   }
 }
 
-function enableDrawEvents() {
-  if (!maskCanvas) return;
-  maskCanvas.onmousedown = e => { isDrawing = true; drawBrush(e); };
-  maskCanvas.onmousemove = e => { if (isDrawing) drawBrush(e); };
-  maskCanvas.onmouseup   = () => { isDrawing = false; };
-  maskCanvas.onmouseleave = () => { isDrawing = false; };
+function enableDrawEvents(type) {
+  const canvas = type === 'ok' ? maskCanvasOk : maskCanvasNg;
+  if (!canvas) return;
+  canvas.onmousedown = e => { isDrawing = true; drawBrush(e, type); };
+  canvas.onmousemove = e => { if (isDrawing) drawBrush(e, type); };
+  canvas.onmouseup   = () => { isDrawing = false; };
+  canvas.onmouseleave = () => { isDrawing = false; };
 }
 
-function drawBrush(e) {
-  if (!maskCtx) return;
-  const rect = maskCanvas.getBoundingClientRect();
-  const scaleX = maskCanvas.width / rect.width;
-  const scaleY = maskCanvas.height / rect.height;
+function drawBrush(e, type) {
+  const canvas = type === 'ok' ? maskCanvasOk : maskCanvasNg;
+  const ctx = type === 'ok' ? maskCtxOk : maskCtxNg;
+  if (!ctx) return;
+  
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
   const x = (e.clientX - rect.left) * scaleX;
   const y = (e.clientY - rect.top) * scaleY;
   const r = parseInt(document.getElementById('slider-brush').value);
 
-  maskCtx.fillStyle = 'rgba(255, 0, 0, 0.7)';
-  maskCtx.beginPath();
-  maskCtx.arc(x, y, r, 0, Math.PI * 2);
-  maskCtx.fill();
+  ctx.fillStyle = type === 'ok' ? 'rgba(0, 200, 255, 0.7)' : 'rgba(255, 0, 0, 0.7)';
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
 }
 
-function extractMask() {
-  if (!maskCanvas || !maskCtx) { maskB64 = null; return; }
-  // Convert red drawing to grayscale mask
-  const imgData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+function extractMask(type) {
+  const canvas = type === 'ok' ? maskCanvasOk : maskCanvasNg;
+  const ctx = type === 'ok' ? maskCtxOk : maskCtxNg;
+  
+  if (!canvas || !ctx) {
+    if (type === 'ok') maskOkB64 = null; else maskNgB64 = null;
+    return;
+  }
+  
+  // Convert red/blue drawing to grayscale mask
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const gray = document.createElement('canvas');
-  gray.width = maskCanvas.width;
-  gray.height = maskCanvas.height;
+  gray.width = canvas.width;
+  gray.height = canvas.height;
   const gCtx = gray.getContext('2d');
   const out = gCtx.createImageData(gray.width, gray.height);
   for (let i = 0; i < imgData.data.length; i += 4) {
@@ -290,15 +330,18 @@ function extractMask() {
     out.data[i+3] = 255;
   }
   gCtx.putImageData(out, 0, 0);
-  maskB64 = gray.toDataURL('image/png').split(',')[1];
+  const b64 = gray.toDataURL('image/png').split(',')[1];
+  if (type === 'ok') maskOkB64 = b64; else maskNgB64 = b64;
 }
 
-function clearMask() {
-  if (maskCtx && maskCanvas) {
-    maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+function clearMask(type) {
+  const canvas = type === 'ok' ? maskCanvasOk : maskCanvasNg;
+  const ctx = type === 'ok' ? maskCtxOk : maskCtxNg;
+  if (ctx && canvas) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
   }
-  maskB64 = null;
-  status('Mask cleared');
+  if (type === 'ok') maskOkB64 = null; else maskNgB64 = null;
+  status(`Mask ${type.toUpperCase()} cleared`);
 }
 
 document.getElementById('slider-brush').oninput = function() {
@@ -354,12 +397,13 @@ async function selectImage(img, el, type) {
     const b64 = dataUrl.split(',')[1];
     if (type === 'ok') {
       okImageB64 = b64;
-      drawToCanvas('canvas-ok', dataUrl);
-      initMaskCanvas();
+      await drawToCanvas('canvas-ok', dataUrl);
+      initMaskCanvas('ok');
       status('OK loaded: ' + img.filename);
     } else {
       ngImageB64 = b64;
-      drawToCanvas('canvas-ng', dataUrl);
+      await drawToCanvas('canvas-ng', dataUrl);
+      initMaskCanvas('ng');
       status('NG loaded: ' + img.filename);
     }
   }
@@ -376,26 +420,31 @@ function blobToDataUrl(blob) {
 
 // ── Canvas drawing ────────────────────────────────────────────────────────────
 function drawToCanvas(canvasId, src) {
-  const canvas = document.getElementById(canvasId);
-  const ctx = canvas.getContext('2d');
-  const img = new Image();
-  img.onload = () => {
-    canvas.width  = img.width;
-    canvas.height = img.height;
-    ctx.drawImage(img, 0, 0);
-  };
-  img.src = src.startsWith('data:') ? src : 'data:image/png;base64,' + src;
+  return new Promise((resolve) => {
+    const canvas = document.getElementById(canvasId);
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    img.onload = () => {
+      canvas.width  = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0);
+      resolve();
+    };
+    img.src = src.startsWith('data:') ? src : 'data:image/png;base64,' + src;
+  });
 }
 
 // ── Preview ───────────────────────────────────────────────────────────────────
 async function runPreview() {
   if (!okImageB64) { status('Load OK image first'); return; }
 
-  // Extract mask if in draw mode
-  if (drawMode) {
-    toggleDraw(); // exit draw mode & extract mask
+  // Extract masks if in draw mode
+  if (activeTarget) {
+    const t = activeTarget;
+    toggleDraw(t);
   } else {
-    extractMask();
+    extractMask('ok');
+    extractMask('ng');
   }
 
   const btn = document.getElementById('btn-preview');
@@ -408,11 +457,13 @@ async function runPreview() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         image_b64:     okImageB64,
-        mask_b64:      maskB64,
+        mask_b64:      maskOkB64,
         ref_image_b64: ngImageB64,
+        ref_mask_b64:  maskNgB64,
         params: {
           seed:      parseInt(document.getElementById('inp-seed').value) || 42,
           intensity: parseFloat(document.getElementById('slider-intensity').value),
+          use_ai:    document.getElementById('chk-use-ai').checked
         }
       })
     });
@@ -420,7 +471,7 @@ async function runPreview() {
     if (data.error) { status('Error: ' + data.error); return; }
 
     resultB64 = data.result_image;
-    drawToCanvas('canvas-result', data.result_image);
+    await drawToCanvas('canvas-result', data.result_image);
 
     // Diff
     if (okImageB64 && data.result_image) computeDiff(okImageB64, data.result_image);
@@ -501,19 +552,22 @@ function downloadResult() {
 // ── Batch ─────────────────────────────────────────────────────────────────────
 async function startBatch() {
   if (!okImageB64) { status('Load OK image first'); return; }
-  extractMask();
+  extractMask('ok');
+  extractMask('ng');
   const n = parseInt(document.getElementById('batch-n').value) || 10;
   const r = await fetch('/api/other/batch', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
       image_b64:     okImageB64,
-      mask_b64:      maskB64,
+      mask_b64:      maskOkB64,
       ref_image_b64: ngImageB64,
+      ref_mask_b64:  maskNgB64,
       category:      document.getElementById('inp-category').value || 'default',
       params: {
         seed:      parseInt(document.getElementById('inp-seed').value) || 42,
         intensity: parseFloat(document.getElementById('slider-intensity').value),
+        use_ai:    document.getElementById('chk-use-ai').checked
       },
       n_images: n
     })

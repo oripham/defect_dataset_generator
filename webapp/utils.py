@@ -56,46 +56,61 @@ def _server_url(path: str) -> str:
 
 def engine_post(path: str, body: dict, timeout_s: int = 900) -> dict:
     """
-    POST to RunPod engine server if server_url is configured.
-    Falls back to returning {"_fallback": True} when no server_url set.
-
-    Usage in route handlers:
-        result = engine_post("/api/cap/preview", body)
-        if result.get("_fallback"):
-            result = _local_generate(...)   # local fallback
+    POST to Engine server using urllib (more robust than requests in some venvs).
+    Includes detailed diagnostic logging to the Flask terminal.
     """
     try:
         srv = state.server_url
     except Exception:
         srv = None
+    
     if not srv:
         return {"_fallback": True}
 
-    import requests as _req
     url = _server_url(path)
+    # Ensure we use 127.0.0.1 instead of localhost to avoid IPv6 issues on Windows
+    if "localhost" in url:
+        url = url.replace("localhost", "127.0.0.1")
+
+    print(f"\n[engine_post] >>> Calling Engine: {url}")
+    print(f"[engine_post] >>> Payload keys: {list(body.keys())}")
+    
+    import urllib.request as _urlreq
+    import urllib.error as _urlerr
+    
+    headers = _auth_headers()
+    headers['Content-Type'] = 'application/json'
+    
+    req = _urlreq.Request(url, data=json.dumps(body).encode('utf-8'), headers=headers, method='POST')
+    
     try:
-        # Default was 120s, but first-run model loading on weak servers can exceed it.
-        resp = _req.post(
-            url,
-            json=body,
-            headers=_auth_headers(),
-            timeout=(15, int(timeout_s)),
-            verify=False,
-        )
-        # 404 = endpoint not deployed on RunPod yet → fall back to local engine
-        if resp.status_code == 404:
+        # We use a shorter connection timeout (10s) and a long read timeout (timeout_s)
+        # Note: urllib.request.urlopen timeout is for the whole operation
+        with _urlreq.urlopen(req, timeout=float(timeout_s)) as resp:
+            status = resp.getcode()
+            print(f"[engine_post] <<< Success: HTTP {status}")
+            return json.loads(resp.read().decode('utf-8'))
+            
+    except _urlerr.HTTPError as e:
+        status = e.code
+        print(f"[engine_post] !!! HTTP Error {status}: {e.reason}")
+        if status == 404:
             return {"_fallback": True}
-        # Surface error details to UI (FastAPI returns JSON {"detail": "..."}).
-        if resp.status_code >= 400:
-            try:
-                j = resp.json()
-                detail = j.get("detail") if isinstance(j, dict) else None
-            except Exception:
-                detail = None
-            msg = detail or resp.text or f"HTTP {resp.status_code}"
-            return {"error": f"Engine HTTP {resp.status_code}: {msg}"}
-        return resp.json()
+        try:
+            err_body = json.loads(e.read().decode('utf-8'))
+            detail = err_body.get("detail") or err_body
+        except Exception:
+            detail = e.reason
+        return {"error": f"Engine HTTP {status}: {detail}"}
+        
+    except _urlerr.URLError as e:
+        print(f"[engine_post] !!! Connection Error: {e.reason}")
+        return {"error": f"Engine Connection Error: {e.reason}"}
+        
     except Exception as e:
+        print(f"[engine_post] !!! Unexpected Error: {e}")
+        import traceback
+        traceback.print_exc()
         return {"error": f"Engine proxy error: {e}"}
 
 

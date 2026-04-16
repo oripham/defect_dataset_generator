@@ -61,10 +61,14 @@ def _auto_place_mask(mask_src: np.ndarray, img_bgr: np.ndarray, seed: int) -> np
     return _exp.place_mask_random(shape, bbox, img_bgr.shape[:2], rng2, rotate=True)
 
 
-def _resolve_mask(params: dict, img_bgr: np.ndarray, mask_dir: str, seed: int) -> np.ndarray | None:
-    """Decode user mask from params, or pick from mask_dir and auto-place."""
-    mask_b64 = params.get("mask_b64") or params.get("user_mask_b64")
+def _resolve_mask(params: dict, img_bgr: np.ndarray, mask_dir: str, seed: int,
+                  incoming_mask_b64: str | None = None) -> np.ndarray | None:
+    """Decode user mask from params/args, or pick from mask_dir and auto-place."""
+    mask_b64 = incoming_mask_b64 or params.get("mask_b64") or params.get("user_mask_b64")
+
     if mask_b64:
+        # data:image/png;base64, ...
+        if "," in mask_b64: mask_b64 = mask_b64.split(",")[1]
         arr  = np.frombuffer(base64.b64decode(mask_b64), np.uint8)
         mask = cv2.imdecode(arr, cv2.IMREAD_GRAYSCALE)
         if mask is None:
@@ -80,7 +84,7 @@ def _resolve_mask(params: dict, img_bgr: np.ndarray, mask_dir: str, seed: int) -
 
 # ── Synthesis functions ───────────────────────────────────────────────────────
 
-def _run_scratch(img_bgr: np.ndarray, mask_dir: str, params: dict):
+def _run_scratch(img_bgr: np.ndarray, mask_dir: str, params: dict, mask_b64: str | None = None):
     if not _HAS_EXP:
         return None, None, "experiments not available"
     seed       = int(params.get("seed", 42))
@@ -88,7 +92,7 @@ def _run_scratch(img_bgr: np.ndarray, mask_dir: str, params: dict):
     whiten_add = float(params.get("whiten_add", 120))
     mode       = str(params.get("mode", "auto"))
 
-    mask = _resolve_mask(params, img_bgr, mask_dir, seed)
+    mask = _resolve_mask(params, img_bgr, mask_dir, seed, incoming_mask_b64=mask_b64)
     if mask is None:
         return None, None, "No mask found — please draw a mask on the image"
 
@@ -156,12 +160,12 @@ def _run_plastic_flow(img_bgr: np.ndarray, _mask_dir: str, params: dict):
     return result_bgr, mask, None
 
 
-def _run_thread(img_bgr: np.ndarray, mask_dir: str, params: dict):
+def _run_thread(img_bgr: np.ndarray, mask_dir: str, params: dict, mask_b64: str | None = None):
     if not _HAS_EXP:
         return None, None, "experiments not available"
 
     seed = int(params.get("seed", 42))
-    mask = _resolve_mask(params, img_bgr, mask_dir, seed)
+    mask = _resolve_mask(params, img_bgr, mask_dir, seed, incoming_mask_b64=mask_b64)
     if mask is None:
         mask = np.ones(img_bgr.shape[:2], dtype=np.uint8) * 255
 
@@ -223,6 +227,7 @@ def generate(
     defect_type:    str,
     params:         dict,
     data_root:      str | None = None,
+    mask_b64:       str | None = None,
 ) -> dict:
     """
     Generate one MKA Cap defect image.
@@ -248,10 +253,16 @@ def generate(
     img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
 
     root     = data_root or _MKA_ROOT
-    mask_dir = os.path.join(root, defect_folder, "mask")
+    import unicodedata
+    normalized_folder = unicodedata.normalize('NFC', defect_folder)
+    mask_dir = os.path.join(root, normalized_folder, "mask")
 
     try:
-        result_bgr, mask_out, err = fn(img_bgr, mask_dir, params)
+        # Dispatch with mask_b64 support
+        if fn in (_run_scratch, _run_thread):
+            result_bgr, mask_out, err = fn(img_bgr, mask_dir, params, mask_b64=mask_b64)
+        else:
+            result_bgr, mask_out, err = fn(img_bgr, mask_dir, params)
     except Exception as e:
         return {"error": f"Synthesis error ({defect_type}): {e}"}
 

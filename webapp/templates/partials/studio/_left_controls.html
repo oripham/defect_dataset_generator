@@ -1,0 +1,144 @@
+<div class="col-lg-4 col-xl-3 d-flex flex-column gap-3">
+
+      <!-- 1. Product Type / 製品種別 -->
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-info">
+          1. Product Type <span class="text-muted fw-normal small">/ 製品種別</span>
+        </div>
+        <div class="card-body py-2">
+          <div class="d-flex gap-2 flex-wrap">
+            <button id="btn-group-cap" class="btn btn-sm btn-outline-info flex-fill" onclick="selectGroup('cap')">
+              🔩 Cap / キャップ
+            </button>
+            <button id="btn-group-pharma" class="btn btn-sm btn-outline-warning flex-fill"
+              onclick="selectGroup('pharma')">
+              💊 Pharma / 医薬品
+            </button>
+            <button id="btn-group-napchai" class="btn btn-sm btn-outline-success flex-fill"
+              onclick="selectGroup('metal_cap')">
+              ⭕ Metal Cap / 金属キャップ
+            </button>
+          </div>
+          <div id="group-cap-hint" class="small text-muted mt-2">MKA Cap — Mask-based synthesis</div>
+          <div id="group-pharma-hint" class="small text-muted mt-2" style="display:none">Capsule · Tablet — Auto Otsu
+            mask</div>
+          <div id="group-napchai-hint" class="small text-muted mt-2" style="display:none">Metal Cap — Polar Transform +
+            SDXL refine (optional)</div>
+        </div>
+      </div>
+
+      <!-- 2. Defect Class / 欠陥種別 -->
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-info">
+          2. Defect Class <span class="text-muted fw-normal small">/ 欠陥種別</span>
+        </div>
+        <div class="card-body py-2">
+          <select id="sel-defect" class="form-select form-select-sm bg-dark border-secondary text-warning"
+            onchange="onDefectChange()">
+          </select>
+        </div>
+      </div>
+
+      <!-- 3. Input Image / 入力画像 -->
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-info">
+          3. Input Image <span class="text-muted fw-normal small">/ 入力画像</span>
+        </div>
+        <div class="card-body py-2">
+          <label class="form-label small fw-semibold text-muted">OK image / OK品画像</label>
+          <input type="file" id="upload-ok"
+            class="form-control form-control-sm bg-dark border-secondary text-light mb-2" accept="image/*"
+            onchange="onUploadOk(this)">
+
+          <div id="upload-multi-wrap" style="display:none">
+            <label class="form-label small fw-semibold text-muted">Batch: multiple images / 複数画像</label>
+            <input type="file" id="upload-batch-files"
+              class="form-control form-control-sm bg-dark border-secondary text-light mb-2" accept="image/*" multiple
+              onchange="onUploadBatchFiles(this)">
+            <div id="batch-files-count" class="small text-muted"></div>
+          </div>
+
+
+          <!-- Napchai: NG reference for IP-Adapter -->
+          <div id="ng-ref-wrap" style="display:none">
+            <label id="ng-ref-label" class="form-label small fw-semibold text-muted mt-2">NG Reference (IP-Adapter)
+              <span class="text-muted fw-normal">optional</span></label>
+            <input type="file" id="upload-ng-ref"
+              class="form-control form-control-sm bg-dark border-secondary text-light mb-1" accept="image/*"
+              onchange="onUploadNgRef(this)">
+            <!-- After upload: thumb + crop button -->
+            <div id="ng-ref-loaded" style="display:none" class="mb-1">
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <img id="thumb-ng-ref" style="height:38px;border-radius:3px;border:1px solid #555;flex-shrink:0">
+                <div class="flex-grow-1 overflow-hidden">
+                  <div id="ng-ref-name" class="small text-success text-truncate"></div>
+                  <div id="ng-ref-dim" class="small text-muted"></div>
+                </div>
+                <button class="btn btn-sm btn-outline-info py-0" style="font-size:11px" onclick="toggleNgCropPanel()">✂
+                  Crop</button>
+                <button class="btn btn-link btn-sm text-danger p-0" onclick="clearNgRef()">✕</button>
+              </div>
+              <!-- Inline crop canvas -->
+              <div id="ng-crop-panel" style="display:none" class="border border-secondary rounded p-2 mt-1"
+                style="background:#0d1117">
+                <div class="small text-info mb-1">Drag to select the defect region →</div>
+                <canvas id="ng-crop-canvas"
+                  style="border:1px solid #3a3a5c;display:block;cursor:crosshair;max-width:100%"></canvas>
+                <div class="d-flex gap-2 mt-2 align-items-center">
+                  <button class="btn btn-sm btn-success" onclick="confirmNgCrop()">✓ Use Crop</button>
+                  <button class="btn btn-sm btn-outline-secondary" onclick="cancelNgCrop()">Cancel</button>
+                  <span id="ng-crop-hint" class="small text-muted ms-1">Drag rectangle over defect</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="mask-status" class="small text-muted mt-1"></div>
+          <img id="thumb-ok" src="" class="img-fluid rounded mt-2 border border-secondary"
+            style="max-height:100px;display:none;object-fit:contain;background:#111">
+
+          <!-- Metal Cap: draw-position canvas for scratch / mc_deform -->
+          <div id="mc-mask-draw-wrap" class="mt-2 d-none">
+            <button class="btn btn-sm btn-outline-info w-100 py-1" style="font-size:11px" onclick="toggleMcMaskPanel()">
+              ✏ Draw Position (optional) / 位置を描く
+            </button>
+            <div id="mc-mask-panel" class="mt-1 p-1 border border-secondary rounded d-none"
+              style="background:#0d1117">
+              <canvas id="mc-mask-canvas" style="display:block;cursor:crosshair;max-width:100%"></canvas>
+              <div class="d-flex gap-1 mt-1 align-items-center">
+                <span class="small text-muted">Brush:</span>
+                <input type="range" id="mc-brush-size" min="5" max="60" value="20" style="width:72px"
+                  oninput="_mcBrushSz=parseInt(this.value);document.getElementById('mc-brush-lbl').textContent=this.value">
+                <span id="mc-brush-lbl" class="small text-info" style="min-width:22px">20</span>
+                <button class="btn btn-sm btn-outline-danger py-0 px-1 ms-auto" style="font-size:11px"
+                  onclick="clearMcMask()">🗑</button>
+                <button class="btn btn-sm btn-success py-0 px-2" style="font-size:11px" onclick="confirmMcMask()">✓
+                  Set</button>
+              </div>
+              <div id="mc-rim-offset-wrap" class="mt-1 d-none">
+                <div class="d-flex align-items-center gap-2">
+                  <span class="small text-muted">Rim offset:</span>
+                  <input type="range" id="mc-rim-offset" min="-80" max="80" value="0" style="width:140px"
+                    oninput="document.getElementById('mc-rim-offset-lbl').textContent=this.value">
+                  <span id="mc-rim-offset-lbl" class="small text-info" style="min-width:28px">0</span>
+                  <span class="small text-muted">px</span>
+                </div>
+                <div class="small text-muted">Use when scratch mask is clipped or shifted.</div>
+              </div>
+              <div id="mc-mask-hint" class="small text-muted mt-1">Paint the defect region, then click Set</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+
+      <!-- Action buttons -->
+      <button id="btn-preview" class="btn btn-primary fw-bold" onclick="runPreview()">
+        ▶ Preview / プレビュー
+      </button>
+      <button id="btn-batch" class="btn btn-outline-warning fw-bold" onclick="openBatchModal()">
+        ⚡ Batch Generate / バッチ生成
+      </button>
+
+    </div><!-- /left -->

@@ -1,0 +1,71 @@
+<div class="col-lg-3 col-xl-3 d-flex flex-column gap-3">
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-info">Result Evaluation / 結果評価</div>
+        <div class="card-body py-2 d-flex flex-column gap-2" id="eval-panel" style="display:none">
+          <div class="d-flex gap-2 mb-2">
+            <button class="btn btn-sm btn-outline-success flex-fill" id="btn-eval-success"
+              onclick="evaluateResult('success')">👍 Success</button>
+            <button class="btn btn-sm btn-outline-danger flex-fill" id="btn-eval-failed"
+              onclick="toggleFailReasons()">👎 Failed</button>
+          </div>
+          <div id="fail-reasons-wrap" style="display:none" class="bg-dark p-2 rounded border border-danger">
+            <label class="form-label small fw-semibold text-danger mb-1">Reason for Failure:</label>
+            <div class="form-check">
+              <input class="form-check-input eval-reason-chk" type="checkbox" value="unnatural shape"
+                id="fail-reason-1">
+              <label class="form-check-label small" for="fail-reason-1">Unnatural shape / 不自然な形状</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input eval-reason-chk" type="checkbox" value="weak texture" id="fail-reason-2">
+              <label class="form-check-label small" for="fail-reason-2">Weak texture / 弱いテクスチャ</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input eval-reason-chk" type="checkbox" value="incorrect position"
+                id="fail-reason-3">
+              <label class="form-check-label small" for="fail-reason-3">Incorrect position / 不正な位置</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input eval-reason-chk" type="checkbox" value="unrealistic appearance"
+                id="fail-reason-4">
+              <label class="form-check-label small" for="fail-reason-4">Unrealistic / 非現実的</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input eval-reason-chk" type="checkbox" value="defect not visible enough"
+                id="fail-reason-5">
+              <label class="form-check-label small" for="fail-reason-5">Defect not visible / 欠陥が不鮮明</label>
+            </div>
+            <textarea id="fail-reason-other"
+              class="form-control form-control-sm bg-dark text-light border-secondary mt-2"
+              placeholder="Other details..."></textarea>
+            <button class="btn btn-sm btn-danger w-100 mt-2" id="btn-submit-fail"
+              onclick="evaluateResult('failed')">Submit Fail Report</button>
+          </div>
+          <div id="eval-status" class="small mt-1 text-center font-monospace"></div>
+        </div>
+        <div class="card-body py-2" id="eval-placeholder">
+          <div class="text-muted small">Run preview to evaluate / プレビューを実行して評価</div>
+        </div>
+      </div>
+
+      <!-- Result QC Metrics -->
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-warning">Quality Metrics <span class="text-muted fw-normal small">/ 品質指標 (QC)</span></div>
+        <div class="card-body py-2" id="qc-panel">
+          <div class="text-muted small">Run preview first / プレビューを実行して品質を表示</div>
+        </div>
+      </div>
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-secondary">Output / 出力</div>
+        <div class="card-body py-2 d-flex flex-column gap-2">
+          <button class="btn btn-sm btn-success" id="btn-save" onclick="saveResult()" disabled>💾 Save / 保存</button>
+          <button class="btn btn-sm btn-outline-light" id="btn-download" onclick="downloadResult()" disabled>⬇ Download
+            PNG</button>
+        </div>
+      </div>
+      <div class="card bg-dark-card border-secondary flex-grow-1">
+        <div class="card-header border-secondary bg-transparent fw-bold text-secondary">Recent / 履歴</div>
+        <div class="card-body p-2">
+          <div id="history-strip" class="d-flex flex-wrap gap-1"></div>
+        </div>
+      </div>
+    </div><!-- /right -->

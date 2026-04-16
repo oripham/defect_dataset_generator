@@ -1,0 +1,186 @@
+<!-- ══ BOTTOM: Parameters ══════════════════════════════════════════════════ -->
+  <div class="row mt-3 mb-5">
+    <div class="col-12">
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-warning d-flex justify-content-between align-items-center">
+          <span>4. Parameters <span class="text-muted fw-normal small">/ パラメータ</span></span>
+        </div>
+        <div class="card-body py-3 d-flex flex-wrap gap-4 align-items-end" id="params-container">
+
+          <!-- Shared: Intensity (always visible) -->
+          <div style="width: 160px;" id="params-intensity">
+            <label class="form-label small fw-semibold d-flex justify-content-between mb-1">
+              <span>Intensity / 強度</span>
+              <span id="val-intensity" class="text-info fw-bold">70%</span>
+            </label>
+            <input type="range" class="form-range" id="slider-intensity" min="0" max="100" value="70"
+              oninput="document.getElementById('val-intensity').textContent=this.value+'%'">
+          </div>
+
+          <!-- Shared: Seed (always visible) -->
+          <div style="width: 110px;">
+            <label class="form-label small fw-semibold mb-1">Seed / シード</label>
+            <div class="d-flex gap-1">
+              <input type="number" id="inp-seed" class="form-control form-control-sm bg-dark border-secondary text-light" value="42" style="width:70px">
+              <button class="btn btn-sm btn-outline-info py-0 px-1" onclick="randomSeed()" title="Randomize">🎲</button>
+            </div>
+          </div>
+
+          <!-- ═══ Cap: Scratch → Scuff Style ═══ -->
+          <div id="params-scuff" class="d-none flex-wrap gap-4 align-items-end">
+            <div style="width: 160px;">
+              <label class="form-label small fw-semibold mb-1">Scuff Style</label>
+              <select id="sel-mode" class="form-select form-select-sm bg-dark border-secondary text-light">
+                <option value="auto">Auto / 自動</option>
+                <option value="whiten_streak">Whiten Streak</option>
+                <option value="micro_haze">Micro Haze</option>
+                <option value="gouge_whiten">Gouge Whiten</option>
+                <option value="parallel_micro">Parallel Micro</option>
+                <option value="crosshatch">Crosshatch</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- ═══ Cap: Plastic Flow → Patch MaxDim, Scale, Shadow-free ═══ -->
+          <div id="params-plastic-flow-tune" class="d-none flex-wrap gap-4 align-items-end">
+            <div style="width: 140px;">
+              <label class="form-label small fw-semibold d-flex justify-content-between mb-1">
+                <span>Patch MaxDim</span><span id="val-pf-maxdim" class="text-info">320</span>
+              </label>
+              <input type="range" class="form-range" id="slider-pf-maxdim" min="120" max="640" step="10" value="320"
+                oninput="document.getElementById('val-pf-maxdim').textContent=this.value">
+            </div>
+            <div style="width: 140px;">
+              <label class="form-label small fw-semibold d-flex justify-content-between mb-1">
+                <span>Patch Scale</span><span id="val-pf-scale" class="text-info">1.00</span>
+              </label>
+              <input type="range" class="form-range" id="slider-pf-scale" min="0.5" max="1.8" step="0.05" value="1.0"
+                oninput="document.getElementById('val-pf-scale').textContent=parseFloat(this.value).toFixed(2)">
+            </div>
+            <div class="form-check mb-1">
+              <input class="form-check-input" type="checkbox" id="chk-pf-shadowfree" checked>
+              <label class="form-check-label small" for="chk-pf-shadowfree">Shadow-free</label>
+            </div>
+          </div>
+
+          <!-- ═══ Cap: Dark Spots → Radius min-max ═══ -->
+          <div id="params-spots" class="d-none align-items-end">
+            <div style="width: 150px;">
+              <label class="form-label small fw-semibold mb-1">Radius (min - max)</label>
+              <div class="d-flex gap-2">
+                <input type="number" id="inp-r-min" class="form-control form-control-sm bg-dark border-secondary text-light" value="1" min="1" max="60">
+                <span class="small text-muted align-self-center">-</span>
+                <input type="number" id="inp-r-max" class="form-control form-control-sm bg-dark border-secondary text-light" value="3" min="1" max="80">
+              </div>
+            </div>
+          </div>
+
+          <!-- ═══ Pharma: Crack → Break Type, Depth, Angle ═══ -->
+          <div id="params-crack" class="d-none flex-wrap gap-4 align-items-end">
+            <div style="width: 160px;">
+              <label class="form-label small fw-semibold mb-1">Break Type</label>
+              <select id="sel-break-type" class="form-select form-select-sm bg-dark border-secondary text-light">
+                <option value="straight">Straight</option>
+                <option value="corner">Corner chip</option>
+                <option value="curved">Curved</option>
+                <option value="concave">Concave</option>
+              </select>
+            </div>
+            <div style="width: 150px;">
+              <label class="form-label small fw-semibold d-flex justify-content-between mb-1">
+                <span>Depth</span><span id="val-depth" class="text-info">30%</span>
+              </label>
+              <input type="range" class="form-range" id="slider-depth" min="10" max="70" value="30"
+                oninput="document.getElementById('val-depth').textContent=this.value+'%'">
+            </div>
+            <div style="width: 160px;">
+              <label class="form-label small fw-semibold d-flex justify-content-between align-items-center mb-1">
+                <span>Angle</span>
+                <span class="d-flex align-items-center gap-2">
+                  <span id="val-angle" class="text-info">Random</span>
+                  <label class="mb-0 small text-secondary d-flex align-items-center gap-1">
+                    <input type="checkbox" id="chk-angle-random" checked onchange="onAngleRandomToggle()"> Auto
+                  </label>
+                </span>
+              </label>
+              <input type="range" class="form-range" id="slider-angle" min="0" max="315" step="45" value="0" disabled
+                oninput="document.getElementById('val-angle').textContent=this.value+'°'">
+            </div>
+          </div>
+
+          <!-- ═══ Pharma: Dent → Dent Strength, Dent Size ═══ -->
+          <div id="params-dent" class="d-none flex-wrap gap-4 align-items-end">
+            <div style="width: 150px;">
+              <label class="form-label small fw-semibold d-flex justify-content-between mb-1">
+                <span>Dent Strength</span><span id="val-dent-strength" class="text-info">1.0</span>
+              </label>
+              <input type="range" class="form-range" id="slider-dent-strength" min="0.2" max="3.0" step="0.1" value="1.0"
+                oninput="document.getElementById('val-dent-strength').textContent=parseFloat(this.value).toFixed(2)">
+            </div>
+            <div style="width: 150px;">
+              <label class="form-label small fw-semibold d-flex justify-content-between mb-1">
+                <span>Dent Size</span><span id="val-dent-size" class="text-info">0.08</span>
+              </label>
+              <input type="range" class="form-range" id="slider-dent-size" min="0.04" max="0.20" step="0.01" value="0.08"
+                oninput="document.getElementById('val-dent-size').textContent=parseFloat(this.value).toFixed(2)">
+            </div>
+          </div>
+
+          <!-- ═══ Pharma: Hollow / Underfill → Fixed Region ═══ -->
+          <div id="params-hollow" class="d-none gap-3 align-items-end">
+            <div class="form-check mb-1">
+              <input class="form-check-input" type="checkbox" id="chk-fixed-region">
+              <label class="form-check-label small" for="chk-fixed-region">Fixed Region</label>
+            </div>
+          </div>
+
+          <!-- ═══ Metal Cap: MC Deform → Position, Span, Deform Depth ═══ -->
+          <div id="params-polar" class="d-none flex-wrap gap-4 align-items-end">
+            <div style="width: 150px;">
+              <label class="form-label small fw-semibold mb-1">Position / 位置</label>
+              <select id="sel-theta" class="form-select form-select-sm bg-dark border-secondary text-light">
+                <option value="0">12 o'clock</option>
+                <option value="1.571">3 o'clock</option>
+                <option value="3.1416">6 o'clock</option>
+                <option value="4.712">9 o'clock</option>
+                <option value="random" selected>Random</option>
+              </select>
+            </div>
+            <div style="width: 140px;">
+              <label class="form-label small fw-semibold d-flex justify-content-between mb-1">
+                <span>Span</span><span id="val-span" class="text-info">22°</span>
+              </label>
+              <input type="range" class="form-range" id="slider-span" min="5" max="180" step="5" value="22"
+                oninput="document.getElementById('val-span').textContent=this.value+'°'">
+            </div>
+            <div style="width: 140px;">
+              <label class="form-label small fw-semibold d-flex justify-content-between mb-1">
+                <span>Deform Depth</span><span id="val-deform" class="text-info">15</span>
+              </label>
+              <input type="range" class="form-range" id="slider-deform" min="3" max="40" step="1" value="15"
+                oninput="document.getElementById('val-deform').textContent=this.value">
+            </div>
+          </div>
+
+          <!-- ═══ Metal Cap: Ring Fracture → Amplitude, Falloff ═══ -->
+          <div id="params-napchai-ring" class="d-none flex-wrap gap-4 align-items-end">
+            <div style="width: 150px;">
+              <label class="form-label small fw-semibold d-flex justify-content-between mb-1">
+                <span>Amplitude</span><span id="val-amplitude" class="text-info">4.0</span>
+              </label>
+              <input type="range" class="form-range" id="slider-amplitude" min="1.0" max="15.0" step="0.1" value="4.0"
+                oninput="document.getElementById('val-amplitude').textContent=parseFloat(this.value).toFixed(1)">
+            </div>
+            <div style="width: 150px;">
+              <label class="form-label small fw-semibold d-flex justify-content-between mb-1">
+                <span>Falloff</span><span id="val-falloff" class="text-info">1.00</span>
+              </label>
+              <input type="range" class="form-range" id="slider-falloff" min="0.1" max="3.0" step="0.05" value="1.0"
+                oninput="document.getElementById('val-falloff').textContent=parseFloat(this.value).toFixed(2)">
+            </div>
+          </div>
+
+        </div><!-- /card-body -->
+      </div><!-- /card -->
+    </div><!-- /col-12 -->
+  </div><!-- /row -->

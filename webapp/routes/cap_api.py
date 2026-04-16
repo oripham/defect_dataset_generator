@@ -207,12 +207,15 @@ def api_cap_preview():
     if not img_b64:
         return jsonify(error="image_b64 required"), 400
 
+    mask_b64 = body.get("mask_b64")
+
     # Pass data_root for mask lookup
     p = PRODUCTS.get(product, {})
     data_root = str(p.get("data_dir", "")) if p else ""
 
     result = _engine_post("/api/cap/preview", {
         "image_b64":   img_b64,
+        "mask_b64":    mask_b64,
         "product":     product,
         "defect_type": defect_type,
         "params":      params,

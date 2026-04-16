@@ -1128,6 +1128,135 @@ def _warp_ng_rotation_grid_to_ok(
     )
 
 
+
+def get_product_contour(img_bgr: np.ndarray) -> np.ndarray:
+    """Helper to detect largest product contour for alignment."""
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    # Dual-polarity Otsu or simple threshold
+    _, th = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # Check if inverted works better (dark pill on light bg) - usually pill is lighter
+    if (th > 127).sum() > (th.size * 0.9):
+        th = cv2.bitwise_not(th)
+    cnts, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not cnts:
+        # Fallback to simple rectangle
+        H, W = gray.shape
+        return np.array([[0,0], [W-1,0], [W-1,H-1], [0,H-1]])
+    return max(cnts, key=cv2.contourArea)
+
+
+def sort_pts(pts: np.ndarray) -> np.ndarray:
+    """Sorts 4 points (top-left, top-right, bottom-right, bottom-left)."""
+    rect = np.zeros((4, 2), dtype="float32")
+    s = pts.sum(axis=1)
+    rect[0] = pts[np.argmin(s)]
+    rect[2] = pts[np.argmax(s)]
+    diff = np.diff(pts, axis=1)
+    rect[1] = pts[np.argmin(diff)]
+    rect[3] = pts[np.argmax(diff)]
+    return rect
+
+
+def align_ng_to_good_pca(
+    ok_bgr: np.ndarray,
+    ng_bgr: np.ndarray,
+) -> np.ndarray:
+    """
+    High-fidelity alignment using PCA for orientation and Perspective Transform for bounds.
+    Ported from capsule_pipeline_viz.ipynb.
+    """
+    H, W = ok_bgr.shape[:2]
+    c_good = get_product_contour(ok_bgr)
+    c_ng = get_product_contour(ng_bgr)
+
+    # 1. PCA orientation for Good
+    mu, eigen = cv2.PCACompute(c_good.reshape(-1, 2).astype(np.float32), mean=None)
+    angle_good = np.degrees(np.arctan2(eigen[0, 1], eigen[0, 0]))
+    
+    # 2. PCA orientation for NG
+    center_ng, eigen_ng = cv2.PCACompute(c_ng.reshape(-1, 2).astype(np.float32), mean=None)
+    angle_ng = np.degrees(np.arctan2(eigen_ng[0, 1], eigen_ng[0, 0]))
+
+    # Rotate NG to align long-axis with Good
+    rot_diff = angle_good - angle_ng
+    M_rot = cv2.getRotationMatrix2D(tuple(center_ng[0]), rot_diff, 1.0)
+    ng_rotated = cv2.warpAffine(ng_bgr, M_rot, (ng_bgr.shape[1], ng_bgr.shape[0]), 
+                               flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+
+    # 3. Perspective Transform for fine-tuning
+    c_ng_rot = get_product_contour(ng_rotated)
+    rect_good = cv2.minAreaRect(c_good)
+    rect_ng_rot = cv2.minAreaRect(c_ng_rot)
+
+    M_warp = cv2.getPerspectiveTransform(
+        sort_pts(cv2.boxPoints(rect_ng_rot)), 
+        sort_pts(cv2.boxPoints(rect_good))
+    )
+    warped_ng = cv2.warpPerspective(ng_rotated, M_warp, (W, H), 
+                                   flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    
+    return warped_ng
+
+
+def get_white_powder_mask(img_bgr: np.ndarray, threshold: int = 180) -> np.ndarray:
+    """Detects 'white powder' area (body of transparent capsule) for replacement."""
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    _, mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
+    # morphological cleanup
+    kernel = np.ones((3, 3), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    mask = cv2.dilate(mask, kernel, iterations=2)
+    return mask
+
+
+def synth_hybrid_cv_replacement(
+    ok_bgr: np.ndarray,
+    ng_bgr: np.ndarray,
+    seed: int,
+    intensity: float = 0.5,
+    *,
+    white_threshold: int = 180,
+    alpha_blend: float = 0.95,
+    refine_ai: bool = False,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Pharma Hybrid CV-AI Synthesis:
+    1. Align NG reference to Good (PCA + Perspective)
+    2. Detect target mask (white powder area)
+    3. Alpha-blend (feathered) aligned NG texture into Good
+    4. Optional: SDXL Refinement
+    """
+    # 1. Alignment
+    warped_ng = align_ng_to_good_pca(ok_bgr, ng_bgr)
+    
+    # 2. Masking
+    target_mask = get_white_powder_mask(ok_bgr, threshold=white_threshold)
+    
+    # Feathering
+    mask_blur = cv2.GaussianBlur(target_mask, (21, 21), 0).astype(np.float32) / 255.0
+    mask_blur_3c = cv2.merge([mask_blur, mask_blur, mask_blur])
+    
+    # 3. Blending
+    ok_f = ok_bgr.astype(np.float32)
+    ng_f = warped_ng.astype(np.float32)
+    
+    # Apply intensity to alpha_blend
+    blend = mask_blur_3c * alpha_blend * (0.7 + 0.3 * intensity)
+    result_f = ok_f * (1.0 - blend) + ng_f * blend
+    result_bgr = np.clip(result_f, 0, 255).astype(np.uint8)
+    
+    # 4. Optional AI Refine
+    if refine_ai:
+        ai_res = _apply_sdxl_refine_to_bgr(result_bgr)
+        if ai_res is not None:
+            # Low strength blend back to preserve geometry if needed, 
+            # though sdxl_refiner usually handles strength internally.
+            result_bgr = ai_res
+
+    # Returns (result, target_mask)
+    return result_bgr, target_mask
+
+
 def _align_ng_to_ok(
     ok_bgr: np.ndarray,
     ng_bgr: np.ndarray,

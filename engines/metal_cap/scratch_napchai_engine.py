@@ -277,7 +277,7 @@ def _sdxl_step(cv_res_rgb, mask_gray, ref_rgb, seed):
 
 # ── Public generate() ─────────────────────────────────────────────────────────
 
-def generate(base_image_b64: str, params: dict) -> dict:
+def generate(base_image_b64: str, params: dict, mask_b64: str | None = None) -> dict:
     """
     Generate one Scratch Napchai defect image.
 
@@ -287,6 +287,8 @@ def generate(base_image_b64: str, params: dict) -> dict:
       ref_image_b64    str        — base64 NG crop for IP-Adapter
       mask_b64         str        — user-drawn mask (optional; auto-band if absent)
     """
+    if mask_b64:
+        params["mask_b64"] = mask_b64
     img_rgb = decode_b64(base_image_b64)
 
     try:
@@ -299,7 +301,7 @@ def generate(base_image_b64: str, params: dict) -> dict:
     _, mbuf = cv2.imencode(".png", mask_res)
     mask_b64 = _b64.b64encode(mbuf).decode()
 
-    do_refine = params.get("sdxl_refine", True)
+    do_refine = params.get("sdxl_refine", False)
     seed      = int(params.get("seed", 42))
     ref_b64   = params.get("ref_image_b64")
 

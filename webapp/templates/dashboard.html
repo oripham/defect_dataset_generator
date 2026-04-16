@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid py-3">
+  <div class="d-flex justify-content-between align-items-center mb-4 border-bottom border-secondary pb-2">
+    <div>
+      <h2 class="h4 mb-0"><span class="text-primary">📊 Dataset</span> Dashboard</h2>
+      <small class="text-muted">Review, filter, and manage generation history.</small>
+    </div>
+    <div>
+      <button class="btn btn-sm btn-outline-danger me-2" onclick="clearAllData()">
+        Clear Database 🗑️
+      </button>
+      <button class="btn btn-sm btn-outline-info" onclick="loadData()">
+        Refresh 🔄
+      </button>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="row g-2 mb-3">
+    <div class="col-md-3">
+      <label class="form-label small text-muted mb-1">Status</label>
+      <select id="filter-status" class="form-select bg-dark text-light border-secondary" onchange="applyFilters()">
+        <option value="all">All / 全て</option>
+        <option value="success">Success 👍</option>
+        <option value="failed">Failed 👎</option>
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label small text-muted mb-1">Product</label>
+      <select id="filter-product" class="form-select bg-dark text-light border-secondary" onchange="applyFilters()">
+        <option value="all">All Products / 全製品</option>
+        <option value="mka">Metal Cap (MKA)</option>
+        <option value="round_tablet">Tablet (Pharma)</option>
+        <option value="elongated_capsule">Capsule (Pharma)</option>
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label small text-muted mb-1">Defect Type</label>
+      <input type="text" id="filter-defect" class="form-control bg-dark text-light border-secondary" placeholder="e.g. scratch, hollow..." onkeyup="applyFilters()">
+    </div>
+  </div>
+
+  <!-- Data Table -->
+  <div class="card bg-dark-card border-secondary">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-dark table-hover table-sm align-middle mb-0" id="eval-table">
+          <thead class="table-active text-info">
+            <tr>
+              <th style="width: 15%">Timestamp</th>
+              <th style="width: 15%">Product & Defect</th>
+              <th style="width: 10%">Status</th>
+              <th style="width: 25%">Parameters / Reasons</th>
+              <th style="width: 25%">Preview</th>
+              <th style="width: 10%" class="text-end">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="eval-tbody">
+            <tr><td colspan="6" class="text-center py-4 text-muted">Loading data...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Image Modal -->
+<div class="modal fade" id="imageModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title text-info" id="imageModalTitle">Evaluation Details</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row text-center mb-3">
+          <div class="col-4">
+            <h6 class="small text-muted">Base / NG Reference</h6>
+            <img id="modal-base-img" class="img-fluid border border-secondary rounded" style="max-height: 60vh; background: #000; object-fit: contain;">
+          </div>
+          <div class="col-4">
+            <h6 class="small text-muted">Mask</h6>
+            <img id="modal-mask-img" class="img-fluid border border-secondary rounded" style="max-height: 60vh; background: #000; object-fit: contain;">
+          </div>
+          <div class="col-4">
+            <h6 class="small text-warning">Generated Result</h6>
+            <img id="modal-result-img" class="img-fluid border border-warning rounded" style="max-height: 60vh; background: #000; object-fit: contain;">
+          </div>
+        </div>
+        <div class="p-3 bg-black rounded border border-secondary text-light font-monospace small" style="word-break: break-all;" id="modal-params"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allData = [];
+
+async function loadData() {
+  const tbody = document.getElementById('eval-tbody');
+  tbody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-muted">Loading data... ⏳</td></tr>`;
+  
+  try {
+    const res = await fetch('/api/eval/list');
+    const json = await res.json();
+    if(json.status === 'ok') {
+      allData = json.data;
+      applyFilters();
+    } else {
+      throw new Error(json.error || 'Server error');
+    }
+  } catch(e) {
+    console.error(e);
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-danger">❌ Failed to load: ${e.message}</td></tr>`;
+  }
+}
+
+function applyFilters() {
+  const fStatus = document.getElementById('filter-status').value;
+  const fProduct = document.getElementById('filter-product').value;
+  const fDefect = document.getElementById('filter-defect').value.toLowerCase().trim();
+  
+  const filtered = allData.filter(d => {
+    if (fStatus !== 'all' && d.status !== fStatus) return false;
+    if (fProduct !== 'all' && d.product !== fProduct) return false;
+    if (fDefect && !d.defect_type.toLowerCase().includes(fDefect)) return false;
+    return true;
+  });
+  
+  renderTable(filtered);
+}
+
+function renderTable(data) {
+  const tbody = document.getElementById('eval-tbody');
+  if(data.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-muted">No records found.</td></tr>`;
+    return;
+  }
+  
+  let html = '';
+  data.forEach(d => {
+    const time = new Date(d.timestamp).toLocaleString();
+    const statusHtml = d.status === 'success' 
+      ? '<span class="badge bg-success">Success 👍</span>' 
+      : '<span class="badge bg-danger">Failed 👎</span>';
+      
+    let paramsHtml = '';
+    if (d.status === 'failed' && d.reasons && d.reasons.length > 0) {
+      paramsHtml += `<div class="text-danger small mb-1 fw-bold">Reasons: ${d.reasons.join(', ')}</div>`;
+    }
+    
+    // Formatting JSON compactly
+    let paramItems = Object.entries(d.params || {}).map(([k,v]) => {
+      if(k.includes('_b64')) return ''; // Ignore all giant base64 fields like ref_image_b64
+      // Shorten booleans and format numbers
+      let vs = v;
+      if(typeof v === 'number') vs = v.toFixed(2).replace(/\.00$/, '');
+      if(typeof v === 'boolean') vs = v ? '✅' : '❌';
+      return `<code class="bg-black text-light px-1 mx-1 rounded border border-secondary">${k}:${vs}</code>`;
+    }).filter(x => x).join(' ');
+    
+    paramsHtml += `<div style="font-size: 0.75rem;">${paramItems}</div>`;
+    
+    // Thumbnail strip
+    const imgParam = `?path=`;
+    const resImg = d.result_image_path ? `/api/eval/image${imgParam}${encodeURIComponent(d.result_image_path)}` : '';
+    const baseImg = d.base_image_path ? `/api/eval/image${imgParam}${encodeURIComponent(d.base_image_path)}` : '';
+    const maskImg = d.mask_image_path ? `/api/eval/image${imgParam}${encodeURIComponent(d.mask_image_path)}` : '';
+    
+    html += `
+      <tr>
+        <td class="text-muted small">${time}</td>
+        <td>
+          <div class="fw-bold text-info">${d.product}</div>
+          <div class="small text-secondary">${d.defect_type}</div>
+        </td>
+        <td>${statusHtml}</td>
+        <td>${paramsHtml}</td>
+        <td>
+          <div class="d-flex gap-1" style="cursor: pointer;" onclick="openModal('${d.id}', '${baseImg}', '${maskImg}', '${resImg}')">
+            ${baseImg ? `<img src="${baseImg}" height="40" class="rounded border border-secondary" title="Base" style="object-fit:cover;width:40px">` : ''}
+            ${maskImg ? `<img src="${maskImg}" height="40" class="rounded border border-secondary" title="Mask" style="object-fit:cover;width:40px;background:black">` : ''}
+            ${resImg ? `<img src="${resImg}" height="40" class="rounded border border-warning" title="Result" style="object-fit:cover;width:40px">` : ''}
+            <div class="d-flex align-items-center ms-1 text-muted small">🔍</div>
+          </div>
+        </td>
+        <td class="text-end">
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteEval('${d.id}')">🗑</button>
+        </td>
+      </tr>
+    `;
+  });
+  tbody.innerHTML = html;
+}
+
+function openModal(id, baseSrc, maskSrc, resSrc) {
+  const d = allData.find(x => x.id === id);
+  if(!d) return;
+
+  document.getElementById('modal-base-img').src = baseSrc || '';
+  document.getElementById('modal-mask-img').src = maskSrc || '';
+  document.getElementById('modal-result-img').src = resSrc || '';  
+  
+  // Format details cleanly (removing big base64 string)
+  const safeParams = {...d.params};
+  for (const k in safeParams) {
+    if (k.includes('_b64')) delete safeParams[k];
+  }
+  document.getElementById('modal-params').innerText = JSON.stringify(safeParams, null, 2);
+  
+  const modalObj = new bootstrap.Modal(document.getElementById('imageModal'));
+  modalObj.show();
+}
+
+window.deleteEval = async function(id) {
+  try {
+    const isSure = window.confirm("Are you sure you want to permanently delete this record AND its physical images?");
+    if (!isSure) return;
+
+    fetch(`/api/eval/delete/${id}`, { method: 'DELETE' })
+      .then(async res => {
+         if (!res.ok) {
+           const errTxt = await res.text();
+           alert(`Delete rejected (HTTP ${res.status}).\nDetails: ` + errTxt.substring(0, 100));
+           return;
+         }
+         const json = await res.json();
+         if(json.status === 'ok') {
+           allData = allData.filter(d => d.id !== id);
+           applyFilters();
+         } else {
+           alert("Delete failed on server: " + (json.error || 'Unknown'));
+         }
+      })
+      .catch(e => alert("Network error deleting: " + e.message));
+
+  } catch (err) {
+    alert("Javascript crash inside delete: " + err.message);
+  }
+};
+
+window.clearAllData = async function() {
+  try {
+    const isSure = window.confirm("⚠️ WARNING: Are you very sure you want to delete ALL evaluations and ALL saved pictures from the database?");
+    if (!isSure) return;
+
+    fetch(`/api/eval/delete/all`, { method: 'DELETE' })
+      .then(async res => {
+         if (!res.ok) {
+           const errTxt = await res.text();
+           alert(`Clear all rejected (HTTP ${res.status}).\nDetails: ` + errTxt.substring(0, 100));
+           return;
+         }
+         const json = await res.json();
+         if (json.status === 'ok') {
+           allData = [];
+           applyFilters();
+           alert("Database has been completely cleared.");
+         } else {
+           alert("Clear all failed on server: " + (json.error || 'Unknown'));
+         }
+      })
+      .catch(e => alert("Network error clearing database: " + e.message));
+
+  } catch (err) {
+    alert("Javascript crash inside clearAllData: " + err.message);
+  }
+};
+
+// Initial load
+document.addEventListener("DOMContentLoaded", () => {
+  loadData();
+});
+</script>
+{% endblock %}

@@ -49,34 +49,29 @@ _scratch_napchai_generate = None
 
 def _load_cap():
     global _cap_generate, _cap_detect_circle
-    if _cap_generate is None:
-        from .metal_cap.mka_cap_engine import generate as _g
-        from .metal_cap.cap_engine import detect_circle_info as _d
-        _cap_generate = _g; _cap_detect_circle = _d
+    from .metal_cap.mka_cap_engine import generate as _g
+    from .metal_cap.cap_engine import detect_circle_info as _d
+    _cap_generate = _g; _cap_detect_circle = _d
 
 def _load_pharma():
     global _pharma_generate, _pharma_auto_mask
-    if _pharma_generate is None:
-        from .pharma.capsule_engine import generate as _g, auto_mask as _a
-        _pharma_generate = _g; _pharma_auto_mask = _a
+    from .pharma.capsule_engine import generate as _g, auto_mask as _a
+    _pharma_generate = _g; _pharma_auto_mask = _a
 
 def _load_mc_deform():
     global _mc_deform_generate
-    if _mc_deform_generate is None:
-        from .metal_cap.mc_deform_engine import generate as _g
-        _mc_deform_generate = _g
+    from .metal_cap.mc_deform_engine import generate as _g
+    _mc_deform_generate = _g
 
 def _load_ring_fracture():
     global _ring_fracture_generate
-    if _ring_fracture_generate is None:
-        from .metal_cap.ring_fracture_engine import generate as _g
-        _ring_fracture_generate = _g
+    from .metal_cap.ring_fracture_engine import generate as _g
+    _ring_fracture_generate = _g
 
 def _load_scratch_napchai():
     global _scratch_napchai_generate
-    if _scratch_napchai_generate is None:
-        from .metal_cap.scratch_napchai_engine import generate as _g
-        _scratch_napchai_generate = _g
+    from .metal_cap.scratch_napchai_engine import generate as _g
+    _scratch_napchai_generate = _g
 
 
 # ── App setup ─────────────────────────────────────────────────────────────────
@@ -327,6 +322,7 @@ from pydantic import BaseModel as _BM
 
 class _CapPreviewReq(_BM):
     image_b64:   str
+    mask_b64:    Optional[str] = None
     defect_type: str
     product:     str = "mka"
     params:      dict = {}
@@ -334,6 +330,7 @@ class _CapPreviewReq(_BM):
 class _PharmaPreviewReq(_BM):
     image_b64:   str
     mask_b64:    Optional[str] = None
+    ref_image_b64: Optional[str] = None
     product:     str = "round_tablet"
     defect_type: str = "crack"
     params:      dict = {}
@@ -347,6 +344,7 @@ def cap_preview(req: _CapPreviewReq):
             base_image_b64=req.image_b64,
             defect_type=req.defect_type,
             params=req.params,
+            mask_b64=req.mask_b64,
         )
     except Exception as _e:
         _tb.print_exc()
@@ -389,6 +387,7 @@ def pharma_preview(req: _PharmaPreviewReq):
             mask_b64=req.mask_b64,
             defect_type=req.defect_type,
             params=req.params,
+            ref_image_b64=req.ref_image_b64,
         )
     except Exception as _e:
         _tb.print_exc()
@@ -401,6 +400,7 @@ def pharma_preview(req: _PharmaPreviewReq):
 
 class _MetalCapPreviewReq(_BM):
     image_b64:   str
+    mask_b64:    Optional[str] = None
     defect_type: str = "mc_deform"   # "mc_deform" | "ring_fracture" | "scratch"
     params:      dict = {}
 
@@ -425,6 +425,7 @@ class _OtherPreviewReq(_BM):
     image_b64:     str
     mask_b64:      Optional[str] = None
     ref_image_b64: Optional[str] = None
+    ref_mask_b64:  Optional[str] = None
     params:        dict = {}
 
 
@@ -437,6 +438,7 @@ def other_preview(req: _OtherPreviewReq):
             base_image_b64=req.image_b64,
             mask_b64=req.mask_b64,
             ref_image_b64=req.ref_image_b64,
+            ref_mask_b64=req.ref_mask_b64,
             params=req.params or {},
         )
     except Exception as _e:
@@ -450,7 +452,8 @@ def other_preview(req: _OtherPreviewReq):
 @app.post("/api/metal_cap/preview")
 def metal_cap_preview(req: _MetalCapPreviewReq):
     import traceback as _tb
-
+    print(f"[metal_cap_preview] Request --- Defect: {req.defect_type}, Has Mask: {bool(req.mask_b64)}")
+    
     entry = _METAL_CAP_LOADERS.get(req.defect_type)
     if entry is None:
         raise HTTPException(
@@ -467,6 +470,7 @@ def metal_cap_preview(req: _MetalCapPreviewReq):
         result = generate_fn(
             base_image_b64=req.image_b64,
             params=req.params,
+            mask_b64=req.mask_b64,
         )
     except Exception as _e:
         _tb.print_exc()

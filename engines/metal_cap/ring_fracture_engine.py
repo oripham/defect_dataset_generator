@@ -98,10 +98,13 @@ def _find_rim_col(polar_gray: np.ndarray) -> int:
 
 # ── CV synthesis ──────────────────────────────────────────────────────────────
 
-def _synthesize_ring_fractures(polar, r_ring_col, seed=None, jitter_amplitude=4.0):
+# ── CV synthesis ──────────────────────────────────────────────────────────────
+
+def _synthesize_ring_fractures(polar, r_ring_col, seed=None, jitter_amplitude=4.0, influence_range=12.0):
     """
     pipeline_ring cell-6 (synthesize_ring_fractures).
     Random Walk displacement + glints along distorted rim.
+    influence_range: controls how far the distortion spreads into the cap body.
     """
     if seed is None:
         seed = _random.randint(0, 999999)
@@ -113,10 +116,12 @@ def _synthesize_ring_fractures(polar, r_ring_col, seed=None, jitter_amplitude=4.
     noise_profile = np.cumsum(steps)
     lin_trend     = np.linspace(noise_profile[0], noise_profile[-1], H)
     noise_profile = noise_profile - lin_trend
+    # Scale jitter so it's more noticeable
     noise_profile = noise_profile * (jitter_amplitude / (np.std(noise_profile) + 1e-6))
 
     dist_from_rim = np.abs(COL - r_ring_col)
-    influence     = np.exp(-(dist_from_rim ** 2) / (2 * (12 ** 2)))
+    # Linked to influence_range instead of hardcoded 12
+    influence     = np.exp(-(dist_from_rim ** 2) / (2 * (influence_range ** 2)))
     shift_val     = (influence * noise_profile[:, np.newaxis]).astype(np.float32)
 
     map_x = (COL - shift_val).astype(np.float32)
@@ -128,7 +133,9 @@ def _synthesize_ring_fractures(polar, r_ring_col, seed=None, jitter_amplitude=4.
     for i in range(H):
         cx = int(r_ring_col + noise_profile[i])
         if 0 <= cx < W and rng.rand() > 0.85:
-            cv2.circle(glint_mask, (cx, i), int(rng.randint(1, 3)), 255, -1)
+            # Glint size also scales slightly with jitter
+            g_radius = int(rng.randint(1, 3))
+            cv2.circle(glint_mask, (cx, i), g_radius, 255, -1)
 
     p_mask = (influence * 255).astype(np.uint8)
     return polar_distorted, p_mask, glint_mask
@@ -143,8 +150,11 @@ def _cv_step(img_rgb: np.ndarray, params: dict):
     """
     seed            = int(params.get("seed", 42))
     intensity       = float(params.get("intensity", 0.7))
-    jitter          = float(params.get("jitter_amplitude", 6.0)) * intensity
+    # Amplitude: Make it more sensitive (multiply by 1.5)
+    jitter          = float(params.get("jitter_amplitude", 6.0)) * intensity * 1.5
+    # Falloff: Link to influence range (10px base * falloff_width)
     falloff_width   = float(params.get("falloff_width", 1.0))
+    inf_range       = 10.0 * (falloff_width + 0.2) 
 
     gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
     cx, cy, radius = _detect_circle(gray)
@@ -156,7 +166,8 @@ def _cv_step(img_rgb: np.ndarray, params: dict):
     r_col      = _find_rim_col(polar_gray)
 
     p_distorted, p_mask, p_glints = _synthesize_ring_fractures(
-        polar_img, r_ring_col=r_col, seed=seed, jitter_amplitude=jitter,
+        polar_img, r_ring_col=r_col, seed=seed, jitter_amplitude=jitter, 
+        influence_range=inf_range
     )
     p_distorted[p_glints > 0] = 255
 
@@ -172,6 +183,7 @@ def _cv_step(img_rgb: np.ndarray, params: dict):
 
     # ── Cartesian soft-mask blend (cell-7 step-3) ──────────────────────────
     # soft_mask = mask^(1/falloff_width) → GaussianBlur
+    # We use falloff_width both for geometry range and blend softness
     soft_mask = np.power(mask_input, 1.0 / max(falloff_width, 0.05))
     soft_mask = cv2.GaussianBlur(soft_mask, (9, 9), 0)
     soft_mask = soft_mask[:, :, np.newaxis]
@@ -179,13 +191,14 @@ def _cv_step(img_rgb: np.ndarray, params: dict):
     img_orig_f   = img_rgb.astype(np.float32)          # original good image
     cv_dist_f    = cv_distorted.astype(np.float32)
 
-    alpha_max = 0.9
+    alpha_max = 0.95 # Higher alpha for CV visibility
     combined  = (img_orig_f * (1 - soft_mask * alpha_max)
                  + cv_dist_f * (soft_mask * alpha_max))
 
     cv_res  = np.clip(combined, 0, 255).astype(np.uint8)
     m_res   = (mask_input * 255).astype(np.uint8)       # 2D
 
+    print(f"[ring_fracture] jitter={jitter:.2f}, inf_range={inf_range:.2f}, falloff={falloff_width:.2f}")
     return cv_res, m_res
 
 
@@ -247,7 +260,7 @@ def _sdxl_step(cv_res_rgb, m_res_gray, ref_rgb, seed):
 
 # ── Public generate() ─────────────────────────────────────────────────────────
 
-def generate(base_image_b64: str, params: dict) -> dict:
+def generate(base_image_b64: str, params: dict, mask_b64: str | None = None) -> dict:
     """
     Generate one Ring Fracture defect image.
 
@@ -259,6 +272,8 @@ def generate(base_image_b64: str, params: dict) -> dict:
       sdxl_refine      bool       (default True)
       ref_image_b64    str        — base64 NG crop for IP-Adapter
     """
+    if mask_b64:
+        params["mask_b64"] = mask_b64
     img_rgb = decode_b64(base_image_b64)
 
     try:
@@ -271,7 +286,7 @@ def generate(base_image_b64: str, params: dict) -> dict:
     _, mbuf = cv2.imencode(".png", m_res)
     mask_b64 = _b64.b64encode(mbuf).decode()
 
-    do_refine = params.get("sdxl_refine", True)
+    do_refine = params.get("sdxl_refine", False)
     seed      = int(params.get("seed", 42))
     ref_b64   = params.get("ref_image_b64")
 

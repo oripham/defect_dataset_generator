@@ -187,25 +187,39 @@ def api_pharma_preview():
     body = request.get_json(force=True, silent=True) or {}
     img_b64     = body.get("image_b64") or body.get("base_image")
     mask_b64    = body.get("mask_b64")
+    ref_b64     = body.get("ref_image_b64")
     defect_type = body.get("defect_type", "crack")
     params      = body.get("params", {})
 
     if not img_b64:
         return jsonify(error="image_b64 required"), 400
 
+    print(f"\n[pharma_api] --- Preview Request ---")
+    print(f"[pharma_api] Product: {body.get('product')}, Defect: {defect_type}")
+    print(f"[pharma_api] Has Mask: {mask_b64 is not None}, Has Ref: {ref_b64 is not None}")
+
     result = _engine_post("/api/pharma/preview", {
-        "image_b64":   img_b64,
-        "mask_b64":    mask_b64,
-        "product":     body.get("product", "round_tablet"),
-        "defect_type": defect_type,
-        "params":      params,
+        "image_b64":     img_b64,
+        "mask_b64":      mask_b64,
+        "ref_image_b64": ref_b64,
+        "product":       body.get("product", "round_tablet"),
+        "defect_type":   defect_type,
+        "params":        params,
     })
+    
+    if result.get("_fallback"):
+        print("[pharma_api] Engine fallback triggered or endpoint not found. Trying local...")
+    elif "error" in result:
+        print(f"[pharma_api] Engine returned error: {result['error']}")
+    else:
+        print(f"[pharma_api] Engine success! Result image size: {len(result.get('result_image', ''))} chars")
     if result.get("_fallback") and _HAS_LOCAL_PHARMA:
         result = _ce_generate_local(
             base_image_b64=img_b64,
             mask_b64=mask_b64,
             defect_type=defect_type,
             params=params,
+            ref_image_b64=ref_b64,
         )
 
     if "error" in result:

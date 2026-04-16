@@ -36,6 +36,7 @@ app.secret_key = 'defect-gen-local-2025'
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config['SESSION_FILE_DIR'] = '/tmp/flask_session'
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB
+app.config['TEMPLATES_AUTO_RELOAD'] = True
 os.makedirs('/tmp/flask_session', exist_ok=True)
 Session(app)
 
@@ -84,6 +85,7 @@ from routes.pharma_api import pharma_bp
 from routes.cap_api import cap_bp
 from routes.metal_cap_api import metal_cap_bp
 from routes.other_api import other_bp
+from routes.eval_api import eval_bp
 
 app.register_blueprint(views_bp)
 app.register_blueprint(setup_bp)
@@ -91,6 +93,7 @@ app.register_blueprint(pharma_bp)
 app.register_blueprint(cap_bp)
 app.register_blueprint(metal_cap_bp)
 app.register_blueprint(other_bp)
+app.register_blueprint(eval_bp)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))

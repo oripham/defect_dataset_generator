@@ -201,10 +201,11 @@ def api_preview():
     }
     """
     body = request.get_json(force=True, silent=True) or {}
-    img_b64     = body.get("image_b64") or body.get("base_image")
-    mask_b64    = body.get("mask_b64")
-    ref_b64     = body.get("ref_image_b64")
-    params      = body.get("params", {})
+    img_b64      = body.get("image_b64") or body.get("base_image")
+    mask_b64     = body.get("mask_b64")
+    ref_b64      = body.get("ref_image_b64")
+    ref_mask_b64 = body.get("ref_mask_b64")
+    params       = body.get("params", {})
 
     if not img_b64:
         return jsonify(error="image_b64 required"), 400
@@ -214,6 +215,7 @@ def api_preview():
         "image_b64":     img_b64,
         "mask_b64":      mask_b64,
         "ref_image_b64": ref_b64,
+        "ref_mask_b64":  ref_mask_b64,
         "params":        params,
     })
 
@@ -223,6 +225,7 @@ def api_preview():
             base_image_b64=img_b64,
             mask_b64=mask_b64,
             ref_image_b64=ref_b64,
+            ref_mask_b64=ref_mask_b64,
             params=params,
         )
 
@@ -280,8 +283,9 @@ def _batch_worker(job_id: str, payload: dict):
     category    = payload.get("category", "default")
     params_base = payload.get("params", {})
     n_images    = int(payload.get("n_images", 10))
-    ref_b64     = payload.get("ref_image_b64")
-    mask_b64    = payload.get("mask_b64")
+    ref_b64      = payload.get("ref_image_b64")
+    mask_b64     = payload.get("mask_b64")
+    ref_mask_b64 = payload.get("ref_mask_b64")
 
     ok_files = _ok_images_for(category)
     if not ok_files:
@@ -317,6 +321,7 @@ def _batch_worker(job_id: str, payload: dict):
                 base_image_b64=img_b64,
                 mask_b64=mask_b64,
                 ref_image_b64=ref_b64,
+                ref_mask_b64=ref_mask_b64,
                 params=params,
             )
         else:

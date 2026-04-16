@@ -60,7 +60,7 @@ def auto_mask(base_image_b64: str) -> dict:
     img_rgb = decode_b64(base_image_b64)
     img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
 
-    mask, bbox = _ce.detect_tablet_mask(img_bgr)
+    mask, bbox = _ce.detect_capsule_mask(img_bgr)
 
     # Encode mask as b64 PNG (grayscale)
     _, buf = cv2.imencode(".png", mask)
@@ -81,6 +81,21 @@ def _run_hollow(img_bgr: np.ndarray, mask: np.ndarray,
     rng_seed     = int(params.get("seed", 42))
     intensity    = float(params.get("intensity", 0.7))
     fixed_region = bool(params.get("fixed_region", False))
+    ref_b64      = params.get("ref_image_b64")
+    
+    if ref_b64 and _HAS_CE:
+        ng_rgb = decode_b64(ref_b64)
+        ng_bgr = cv2.cvtColor(ng_rgb, cv2.COLOR_RGB2BGR)
+        refine_ai = bool(params.get("refine_ai", False))
+        
+        # New Hybrid CV replacement logic (referenced-based)
+        result, _ = _ce.synth_hybrid_cv_replacement(
+            img_bgr, ng_bgr, 
+            seed=rng_seed, 
+            intensity=intensity,
+            refine_ai=refine_ai
+        )
+        return result
 
     result = _ce.synth_rong(
         img_bgr, mask, bbox,
@@ -97,6 +112,12 @@ def _run_underfill(img_bgr: np.ndarray, mask: np.ndarray,
     rng_seed     = int(params.get("seed", 42))
     intensity    = float(params.get("intensity", 0.6))
     fixed_region = bool(params.get("fixed_region", False))
+    ref_b64      = params.get("ref_image_b64")
+
+    if ref_b64 and _HAS_CE:
+        # For underfill, we use the same hybrid replacement as hollow for high fidelity.
+        # Variations can be handled by adjusting intensity or providing specific NG samples.
+        return _run_hollow(img_bgr, mask, bbox, params)
 
     fn = getattr(_ce, "synth_thieu", None) or getattr(_ce, "synth_thieu_ham_luong", None)
     if fn is None:
@@ -193,6 +214,7 @@ def generate(
     mask_b64:       str | None,
     defect_type:    str,
     params:         dict,
+    ref_image_b64:  str | None = None,
 ) -> dict:
     """
     Generate one pharma defect image.
@@ -220,19 +242,24 @@ def generate(
     if fn is None:
         return {"error": f"Unknown defect_type: {defect_type!r}"}
 
+    # Update params with ref if provided as kwarg (from FastAPI)
+    if ref_image_b64 and "ref_image_b64" not in params:
+        params["ref_image_b64"] = ref_image_b64
+
     # Decode input
     img_rgb = decode_b64(base_image_b64)
     img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+    print(f"[capsule_engine] Generating '{defect_type}'... size={img_rgb.shape[:2]}")
 
     H, W = img_bgr.shape[:2]
 
     # dent: synth_dent handles detection internally
-    # crack / hollow / underfill: need detect_tablet_mask (dual-polarity Otsu)
+    # crack / hollow / underfill: need detect_capsule_mask
     if defect_type == "dent":
         mask = np.ones((H, W), dtype=np.uint8) * 255
         bbox = (0, 0, W, H)
     else:
-        mask, bbox = _ce.detect_tablet_mask(img_bgr)
+        mask, bbox = _ce.detect_capsule_mask(img_bgr)
         if (mask > 127).sum() < 50:
             if defect_type == "crack":
                 return {"error": "Tablet mask detection failed — tablet not found in image"}
@@ -244,8 +271,12 @@ def generate(
 
     # Run synthesis
     try:
+        print(f"[capsule_engine] Dispatching {fn.__name__}...")
         raw = fn(img_bgr, mask, bbox, params)
+        print(f"[capsule_engine] Synthesis done. Result type: {type(raw)}")
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return {"error": f"Synthesis error: {e}"}
 
     # Some fns return (result, defect_mask) tuple
@@ -259,6 +290,17 @@ def generate(
     # Ensure same size as input
     if result_bgr.shape != img_bgr.shape:
         result_bgr = cv2.resize(result_bgr, (img_bgr.shape[1], img_bgr.shape[0]))
+
+    # --- SDXL Texture Refinement (Global toggle for Capsule) ---
+    if params.get("sdxl", False) and hasattr(_ce, "_apply_sdxl_refine_to_bgr"):
+        try:
+            # Force enable the singleton flag if requested by API
+            _ce.SDXL_REFINE_ENABLED = True
+            refined = _ce._apply_sdxl_refine_to_bgr(result_bgr)
+            if refined is not None:
+                result_bgr = refined
+        except Exception as e:
+            print(f"[capsule_engine] Background SDXL ignored: {e}")
 
     result_rgb = cv2.cvtColor(result_bgr, cv2.COLOR_BGR2RGB)
 

@@ -1,0 +1,42 @@
+<div class="col-lg-5 col-xl-6 d-flex flex-column gap-3">
+      <div class="card bg-dark-card border-secondary flex-grow-1">
+        <div class="card-header border-secondary bg-transparent fw-bold text-secondary">
+          Preview Panel / プレビュー
+        </div>
+        <div class="card-body p-2">
+          <div class="row g-2">
+            <div class="col-6">
+              <div class="small text-muted mb-1">OK Image / OK品</div>
+              <img id="panel-ok" src="" class="img-fluid rounded border border-secondary"
+                style="min-height:140px;background:#111;width:100%;object-fit:contain">
+            </div>
+            <div class="col-6">
+              <div class="small text-muted mb-1">Mask / マスク</div>
+              <img id="panel-mask" src="" class="img-fluid rounded border border-secondary"
+                style="min-height:140px;background:#111;width:100%;object-fit:contain">
+            </div>
+            <div class="col-6">
+              <div class="small text-muted mb-1">Result / 生成結果</div>
+              <img id="panel-result" src="" class="img-fluid rounded border border-secondary"
+                style="min-height:140px;background:#111;width:100%;object-fit:contain">
+            </div>
+            <div class="col-6">
+              <div class="small text-muted mb-1">Debug (OK | Mask | Result | Diff×4)</div>
+              <img id="panel-diff" src="" class="img-fluid rounded border border-secondary"
+                style="min-height:140px;background:#111;width:100%;object-fit:contain">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card bg-dark-card border-secondary">
+        <div class="card-header border-secondary bg-transparent fw-bold text-secondary d-flex justify-content-between">
+          <span>Log</span>
+          <button class="btn btn-sm btn-link text-muted p-0" onclick="clearLog()">Clear</button>
+        </div>
+        <div class="card-body p-0">
+          <pre id="log-box" class="m-0 p-2 small text-success"
+            style="max-height:120px;overflow-y:auto;background:#0d0d0d;border-radius:0 0 .375rem .375rem"></pre>
+        </div>
+      </div>
+    </div><!-- /center -->

@@ -185,12 +185,21 @@ def api_preview():
     if not img_b64:
         return jsonify(error="image_b64 required"), 400
 
+    print(f"\n[metal_cap_api] --- Preview Request ---")
+    print(f"[metal_cap_api] Defect: {defect_type}")
+    
     # Forward to engine server
     result = _engine_post("/api/metal_cap/preview", {
         "image_b64":   img_b64,
+        "mask_b64":    mask_b64,
         "defect_type": defect_type,
         "params":      params,
     })
+    
+    if "error" in result:
+        print(f"[metal_cap_api] Engine returned error: {result['error']}")
+    else:
+        print(f"[metal_cap_api] Engine success! Result image size: {len(result.get('result_image', ''))} chars")
 
     # Fallback: old CV-only napchai_engine
     if result.get("_fallback") and _HAS_LOCAL_NAPCHAI:

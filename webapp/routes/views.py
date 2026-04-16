@@ -18,3 +18,18 @@ def other():
 @views_bp.route('/studio')
 def studio():
     return render_template('defect_studio.html', state=state, T=T, active='studio')
+
+@views_bp.route('/dashboard')
+def dashboard():
+    return render_template('dashboard.html', state=state, T=T, active='dashboard')
+
+@views_bp.route('/api/health')
+def health():
+    try:
+        import torch
+        gpu_available = torch.cuda.is_available()
+    except Exception:
+        gpu_available = False
+    from flask import jsonify
+    return jsonify({"gpu_available": gpu_available})
+

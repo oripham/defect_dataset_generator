@@ -85,44 +85,52 @@ def _find_rim_col(polar_gray: np.ndarray) -> int:
     return search_start + int(np.argmax(profile[search_start:]))
 
 
-# ── CV synthesis — matches cell-16 bulk-gen exactly ──────────────────────────
+# ── CV synthesis — matches cell-16 bulk-gen ──────────────────────────────────
 
 def _jagged_warp(polar_img, max_radius, t_center, t_span, r_c, r_w,
-                 seed, collapse_depth):
+                 seed, collapse_depth, custom_env=None):
     """
     pipeline_mc cell-16 step-2 (inline warp logic).
-    Gaussian radial band × Gaussian angular taper × proportional jagged noise.
+    Gaussian radial band × Gaussian angular taper (or custom mask envelope) × proportional jagged noise.
     """
     H, W = polar_img.shape[:2]
     row_idx = np.arange(H, dtype=np.float32)
     col_idx = np.arange(W, dtype=np.float32)
     ROW, COL = np.meshgrid(row_idx, col_idx, indexing="ij")
 
-    col_ring  = float(np.clip(r_c / max_radius * W, 1, W - 2))
-    rim_sigma = float(max(r_w / max_radius * W / 2.5, 3.0))
-    band_r    = np.exp(-0.5 * ((COL - col_ring) / (rim_sigma + 1e-6)) ** 2)
+    # 1. Geometry Mask (Envelope)
+    if custom_env is not None:
+        env = custom_env
+    else:
+        col_ring  = float(np.clip(r_c / max_radius * W, 1, W - 2))
+        rim_sigma = float(max(r_w / max_radius * W / 2.5, 3.0))
+        band_r    = np.exp(-0.5 * ((COL - col_ring) / (rim_sigma + 1e-6)) ** 2)
 
-    row_center = (t_center % (2 * math.pi)) / (2 * math.pi) * H
-    drow       = np.minimum(np.abs(ROW - row_center), H - np.abs(ROW - row_center))
-    row_half   = (t_span / (2 * math.pi)) * H / 2.0
-    sigma_row  = max(row_half / 1.5, 2.0)
-    taper      = np.exp(-0.5 * (drow / (sigma_row + 1e-6)) ** 2)
+        row_center = (t_center % (2 * math.pi)) / (2 * math.pi) * H
+        drow       = np.minimum(np.abs(ROW - row_center), H - np.abs(ROW - row_center))
+        row_half   = (t_span / (2 * math.pi)) * H / 2.0
+        sigma_row  = max(row_half / 1.5, 2.0)
+        taper      = np.exp(-0.5 * (drow / (sigma_row + 1e-6)) ** 2)
 
-    env = band_r * taper
+        env = (band_r * taper).astype(np.float32)
 
+    # 2. Jagged Noise
     np.random.seed(seed)
     noise_raw = np.random.normal(0, 1.0, (H, 1)).astype(np.float32)
     noise_v   = cv2.GaussianBlur(noise_raw, (1, 5), 0)
     noise_v   = (noise_v - noise_v.min()) / (np.ptp(noise_v) + 1e-6) * 2.0 - 1.0
+        
     jagged_f  = 1.0 + (noise_v * env * 0.4)
 
-    s_amt = abs(collapse_depth) * 4.0
+    # 3. Geometric Warp
+    s_amt = abs(collapse_depth) * 8.0
     map_x = (COL - (env * jagged_f * s_amt)).astype(np.float32)
     map_y = ROW.astype(np.float32)
 
     polar_deformed = cv2.remap(polar_img, map_x, map_y,
                                cv2.INTER_LANCZOS4, borderMode=cv2.BORDER_REFLECT)
-    return polar_deformed, env.astype(np.float32)
+
+    return polar_deformed, env
 
 
 # ── Blend helper — pipeline_mc cell-14 ───────────────────────────────────────
@@ -153,6 +161,7 @@ def _cv_step(img_rgb: np.ndarray, params: dict):
     """Returns (cv_result_rgb, envelope_mask_gray)."""
     seed      = int(params.get("seed", 42))
     intensity = float(params.get("intensity", 0.7))
+    rng       = np.random.RandomState(seed)
 
     gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
     cx, cy, radius = _detect_circle(gray)
@@ -160,73 +169,90 @@ def _cv_step(img_rgb: np.ndarray, params: dict):
     max_radius = int(radius * 1.3)
 
     polar_img  = _to_polar(img_rgb, center, max_radius)
-    polar_gray = cv2.cvtColor(polar_img, cv2.COLOR_RGB2GRAY).astype(np.float32)
-    _find_rim_col(polar_gray)   # for logging / debugging; unused in warp
 
-    rng = np.random.RandomState(seed)
-
-    # --- Optional: user-drawn mask to pick polar params (notebook Cell 7) ---
-    # Studio sends mask_b64 at top-level and the Flask route copies it into params["mask_b64"].
+    # 1. Parameter Extraction (Priority: Mask > UI Fixed > RNG)
+    t_center = t_span = r_c = r_w = None
+    custom_env = None
     mask_b64 = params.get("mask_b64") or params.get("user_mask_b64")
-    t_center = t_span = None
-    r_c = r_w = None
+
     if mask_b64:
         arr = np.frombuffer(_b64.b64decode(mask_b64), np.uint8)
         user_mask = cv2.imdecode(arr, cv2.IMREAD_GRAYSCALE)
         if user_mask is not None:
-            user_mask = cv2.resize(
-                user_mask, (img_rgb.shape[1], img_rgb.shape[0]),
-                interpolation=cv2.INTER_NEAREST,
-            )
+            user_mask = cv2.resize(user_mask, (img_rgb.shape[1], img_rgb.shape[0]), interpolation=cv2.INTER_NEAREST)
             _, user_mask = cv2.threshold(user_mask, 127, 255, cv2.THRESH_BINARY)
+            
+            # Exact polar envelope mapping from the user's mask drawing
+            polar_mask = _to_polar(user_mask, center, max_radius)
+            custom_env = cv2.GaussianBlur(polar_mask.astype(np.float32) / 255.0, (21, 21), 0)
+
             ys, xs = np.where(user_mask > 127)
             if ys.size > 0:
-                dx = xs.astype(float) - center[0]
-                dy = ys.astype(float) - center[1]
+                dx, dy = xs.astype(float) - cx, ys.astype(float) - cy
                 angles = np.arctan2(dy, dx) % (2 * math.pi)
                 radii  = np.sqrt(dx**2 + dy**2)
 
+                # Find the largest gap to determine the arc span
                 sorted_a = np.sort(angles)
-                diffs = np.append(
-                    np.diff(sorted_a),
-                    (2 * math.pi - sorted_a[-1] + sorted_a[0]),
-                )
+                diffs = np.append(np.diff(sorted_a), (2 * math.pi - sorted_a[-1] + sorted_a[0]))
                 gap_idx = int(np.argmax(diffs))
                 start_angle = sorted_a[gap_idx + 1] if gap_idx < len(sorted_a) - 1 else sorted_a[0]
-                end_angle   = sorted_a[gap_idx]
-                span = (end_angle - start_angle) % (2 * math.pi)
+                span = (2 * math.pi - diffs[gap_idx]) % (2 * math.pi)
 
                 t_center = float((start_angle + span / 2) % (2 * math.pi))
-                t_span   = float(max(span, math.pi / 18))
+                t_span   = float(max(span, 0.05)) # Min 3 degrees
                 r_c      = float(np.mean(radii))
-                r_w      = float(max(float(np.ptp(radii)), 10.0))
+                r_w      = float(max(float(np.ptp(radii)), 5.0))
 
-    # --- Fallback: explicit params or random defaults (notebook ranges) ---
+                # Derive collapse_depth from mask radial extent
+                # Wider mask → deeper collapse, proportional to product radius
+                mask_depth_ratio = r_w / max(radius, 1)
+                mask_collapse = mask_depth_ratio * radius * 0.5 * intensity
+                # Clamp to reasonable range [2..40]
+                mask_collapse = float(np.clip(mask_collapse, 2.0, 40.0))
+
+                print(f"[mc_deform] MASK LOCKED: t_center={t_center:.3f}, "
+                      f"span={t_span:.3f}, r_w={r_w:.1f}, "
+                      f"depth_from_mask={mask_collapse:.1f}")
+
+    # Flag: was depth derived from mask?
+    mask_derived_depth = (t_center is not None and 'mask_collapse' in dir())
+
+    # Fallback/Override logic
     if t_center is None:
-        t_center = float(params.get("theta_center", rng.uniform(0, 2 * math.pi)))
+        # If no mask, check for fixed UI position or random
+        ui_theta = params.get("theta_center")
+        if ui_theta is not None and ui_theta != "random":
+            t_center = float(ui_theta)
+            print(f"[mc_deform] UI FIXED: t_center={t_center:.3f}")
+        else:
+            t_center = rng.uniform(0, 2 * math.pi)
+            print(f"[mc_deform] RNG: t_center={t_center:.3f}")
+
     if t_span is None:
-        # Notebook when no mask: uniform(pi/10, pi/4)
-        t_span = float(params.get("theta_span", rng.uniform(math.pi / 10, math.pi / 4)))
+        # Default span from UI slider (radians)
+        t_span = float(params.get("theta_span", 0.39))
+
     if r_c is None:
-        r_c = float(params.get("r_center", radius * rng.uniform(0.98, 1.05)))
+        r_c = float(params.get("r_center", radius))
     if r_w is None:
-        # Match notebook: rim sigma ~3-6 cols → cart width about 9-18 px for this product scale
-        r_w = float(params.get("r_width", rng.uniform(9.0, 18.0)))
+        r_w = float(params.get("r_width", 20.0))
 
-    # Deform strength: use explicit knob directly (do not re-scale by intensity).
-    if "deform_strength" in params:
-        collapse_depth = float(params.get("deform_strength") or 18.0)
+    # 2. Intensity & Depth Synchronization
+    if mask_derived_depth:
+        # Mask-derived: depth computed from mask's radial width
+        collapse_depth = mask_collapse
+        print(f"[mc_deform] Warp: MASK-DERIVED depth={collapse_depth:.1f} (intensity={intensity})")
     else:
-        collapse_depth = rng.uniform(12.0, 25.0) * intensity
+        # No mask: use UI slider value scaled by intensity
+        base_depth = float(params.get("depth") or params.get("deform_strength") or 15.0)
+        collapse_depth = base_depth * intensity
+        print(f"[mc_deform] Warp: UI base={base_depth}, intensity={intensity} => actual={collapse_depth:.1f}")
 
-    rim_offset = int(params.get("rim_offset", 0) or 0)
-    if rim_offset:
-        # Rim col isn't directly used in warp, but keep for debugging parity
-        pass
-
+    # 3. Execution
     polar_deformed, envelope = _jagged_warp(
         polar_img, max_radius, t_center, t_span, r_c, r_w,
-        seed, collapse_depth,
+        seed, collapse_depth, custom_env=custom_env
     )
 
     osize       = (img_rgb.shape[1], img_rgb.shape[0])
@@ -304,7 +330,7 @@ def _sdxl_step(cv_result_rgb, mask_gray, ref_rgb, seed):
 
 # ── Public generate() ─────────────────────────────────────────────────────────
 
-def generate(base_image_b64: str, params: dict) -> dict:
+def generate(base_image_b64: str, params: dict, mask_b64: str | None = None) -> dict:
     """
     Generate one MC Deform defect image.
 
@@ -314,6 +340,8 @@ def generate(base_image_b64: str, params: dict) -> dict:
       sdxl_refine     bool       (default True) — False = CV-only fast mode
       ref_image_b64   str        — base64 NG crop for IP-Adapter (recommended)
     """
+    if mask_b64:
+        params["mask_b64"] = mask_b64
     img_rgb = decode_b64(base_image_b64)
 
     try:
@@ -327,7 +355,7 @@ def generate(base_image_b64: str, params: dict) -> dict:
     _, mbuf = cv2.imencode(".png", defect_mask)
     mask_b64 = _b64.b64encode(mbuf).decode()
 
-    do_refine = params.get("sdxl_refine", True)
+    do_refine = params.get("sdxl_refine", False)
     seed      = int(params.get("seed", 42))
     ref_b64   = params.get("ref_image_b64")
 
