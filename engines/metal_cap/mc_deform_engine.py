@@ -114,16 +114,19 @@ def _jagged_warp(polar_img, max_radius, t_center, t_span, r_c, r_w,
 
         env = (band_r * taper).astype(np.float32)
 
-    # 2. Jagged Noise
+    # 2. Jagged Noise (Balanced for protrusion vs stability)
     np.random.seed(seed)
     noise_raw = np.random.normal(0, 1.0, (H, 1)).astype(np.float32)
     noise_v   = cv2.GaussianBlur(noise_raw, (1, 5), 0)
     noise_v   = (noise_v - noise_v.min()) / (np.ptp(noise_v) + 1e-6) * 2.0 - 1.0
         
-    jagged_f  = 1.0 + (noise_v * env * 0.4)
+    # Scale jaggedness aggressively (0.8 provides strong metallic protrusions)
+    jagged_f  = 1.0 + (noise_v * env * 0.8)
 
     # 3. Geometric Warp
-    s_amt = abs(collapse_depth) * 8.0
+    # Scaling: depth slider (0-100) -> s_amt. 
+    # multiplier 4.0 provides a very strong effect for high-end dataset diversity
+    s_amt = abs(collapse_depth) * 4.0
     map_x = (COL - (env * jagged_f * s_amt)).astype(np.float32)
     map_y = ROW.astype(np.float32)
 
@@ -182,77 +185,60 @@ def _cv_step(img_rgb: np.ndarray, params: dict):
             user_mask = cv2.resize(user_mask, (img_rgb.shape[1], img_rgb.shape[0]), interpolation=cv2.INTER_NEAREST)
             _, user_mask = cv2.threshold(user_mask, 127, 255, cv2.THRESH_BINARY)
             
-            # Exact polar envelope mapping from the user's mask drawing
-            polar_mask = _to_polar(user_mask, center, max_radius)
-            custom_env = cv2.GaussianBlur(polar_mask.astype(np.float32) / 255.0, (21, 21), 0)
-
             ys, xs = np.where(user_mask > 127)
             if ys.size > 0:
                 dx, dy = xs.astype(float) - cx, ys.astype(float) - cy
                 angles = np.arctan2(dy, dx) % (2 * math.pi)
                 radii  = np.sqrt(dx**2 + dy**2)
 
-                # Find the largest gap to determine the arc span
+                # Find the center angle of the mask
                 sorted_a = np.sort(angles)
                 diffs = np.append(np.diff(sorted_a), (2 * math.pi - sorted_a[-1] + sorted_a[0]))
                 gap_idx = int(np.argmax(diffs))
                 start_angle = sorted_a[gap_idx + 1] if gap_idx < len(sorted_a) - 1 else sorted_a[0]
-                span = (2 * math.pi - diffs[gap_idx]) % (2 * math.pi)
-
-                t_center = float((start_angle + span / 2) % (2 * math.pi))
-                t_span   = float(max(span, 0.05)) # Min 3 degrees
+                span_tmp = (2 * math.pi - diffs[gap_idx]) % (2 * math.pi)
+                
+                t_center = float((start_angle + span_tmp / 2) % (2 * math.pi))
                 r_c      = float(np.mean(radii))
-                r_w      = float(max(float(np.ptp(radii)), 5.0))
+                r_w      = float(max(float(np.ptp(radii)), 10.0))
 
-                # Derive collapse_depth from mask radial extent
-                # Wider mask → deeper collapse, proportional to product radius
-                mask_depth_ratio = r_w / max(radius, 1)
-                mask_collapse = mask_depth_ratio * radius * 0.5 * intensity
-                # Clamp to reasonable range [2..40]
-                mask_collapse = float(np.clip(mask_collapse, 2.0, 40.0))
+                print(f"[mc_deform] MASK USED FOR POSITION ONLY: t_center={t_center:.3f}, r_c={r_c:.1f}")
 
-                print(f"[mc_deform] MASK LOCKED: t_center={t_center:.3f}, "
-                      f"span={t_span:.3f}, r_w={r_w:.1f}, "
-                      f"depth_from_mask={mask_collapse:.1f}")
-
-    # Flag: was depth derived from mask?
-    mask_derived_depth = (t_center is not None and 'mask_collapse' in dir())
-
-    # Fallback/Override logic
+    # 2. Parameter Extraction (Strictly from UI Sliders as requested)
     if t_center is None:
         # If no mask, check for fixed UI position or random
         ui_theta = params.get("theta_center")
         if ui_theta is not None and ui_theta != "random":
             t_center = float(ui_theta)
-            print(f"[mc_deform] UI FIXED: t_center={t_center:.3f}")
         else:
             t_center = rng.uniform(0, 2 * math.pi)
-            print(f"[mc_deform] RNG: t_center={t_center:.3f}")
 
-    if t_span is None:
-        # Default span from UI slider (radians)
-        t_span = float(params.get("theta_span", 0.39))
+    # 3. Apply Seed-based Jitter (Makes even masked positions dynamic)
+    jitter_amt = float(params.get("position_jitter", 0.1)) # default 0.1 rad (~6 deg)
+    t_center  += rng.uniform(-1, 1) * jitter_amt
+    t_center  %= (2 * math.pi)
 
+    # Always take Span and Depth from UI sliders
+    t_span = float(params.get("theta_span", 0.39))
+    base_depth = float(params.get("depth") or params.get("deform_strength") or 15.0)
+    collapse_depth = base_depth * intensity
+    
     if r_c is None:
         r_c = float(params.get("r_center", radius))
+    
+    # Slight radial jitter too
+    r_c += rng.uniform(-1, 1) * (jitter_amt * 20.0) 
+
     if r_w is None:
-        r_w = float(params.get("r_width", 20.0))
+        r_w = float(params.get("r_width", 25.0))
 
-    # 2. Intensity & Depth Synchronization
-    if mask_derived_depth:
-        # Mask-derived: depth computed from mask's radial width
-        collapse_depth = mask_collapse
-        print(f"[mc_deform] Warp: MASK-DERIVED depth={collapse_depth:.1f} (intensity={intensity})")
-    else:
-        # No mask: use UI slider value scaled by intensity
-        base_depth = float(params.get("depth") or params.get("deform_strength") or 15.0)
-        collapse_depth = base_depth * intensity
-        print(f"[mc_deform] Warp: UI base={base_depth}, intensity={intensity} => actual={collapse_depth:.1f}")
+    print(f"[mc_deform] FINAL LOC: t_center={t_center:.3f} ({math.degrees(t_center):.1f}deg), r_c={r_c:.1f}")
+    print(f"[mc_deform] Warp Params: depth={collapse_depth:.1f}, span={t_span:.3f}, intensity={intensity}")
 
-    # 3. Execution
+    # 3. Execution (Always use analytical Gaussian envelope for quality)
     polar_deformed, envelope = _jagged_warp(
         polar_img, max_radius, t_center, t_span, r_c, r_w,
-        seed, collapse_depth, custom_env=custom_env
+        seed, collapse_depth, custom_env=None
     )
 
     osize       = (img_rgb.shape[1], img_rgb.shape[0])
@@ -343,6 +329,11 @@ def generate(base_image_b64: str, params: dict, mask_b64: str | None = None) -> 
     if mask_b64:
         params["mask_b64"] = mask_b64
     img_rgb = decode_b64(base_image_b64)
+
+    # DEBUG: Log received seed and params
+    received_seed = params.get("seed")
+    print(f"\n[mc_deform DEBUG] Generate called with seed={received_seed}")
+    print(f"[mc_deform DEBUG] Params: {params}")
 
     try:
         cv_result, defect_mask, _ = _cv_step(img_rgb, params)

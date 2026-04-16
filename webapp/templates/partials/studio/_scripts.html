@@ -424,7 +424,7 @@
       if (maskB64) showPanel("panel-mask", maskB64);
       if (data.debug_panel) showPanel("panel-diff", data.debug_panel);
 
-      setQC(data.qc);
+      // setQC(data.qc); // QC Panel was removed per user request
       log(`Done — engine=${data.engine || api}  QC=${data.qc?.verdict || "—"}`);
       addHistory(data.result_image);
       const bSave = document.getElementById("btn-save");
