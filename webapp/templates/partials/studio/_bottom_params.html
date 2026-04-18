@@ -180,6 +180,23 @@
             </div>
           </div>
 
+          <!-- ═══ AI Prompt (visible when Use AI checked) ═══ -->
+          <div id="params-prompt" class="d-none w-100 mt-2">
+            <div class="d-flex gap-3 w-100">
+              <div class="flex-grow-1">
+                <label class="form-label small fw-semibold d-flex justify-content-between mb-1">
+                  <span>Positive Prompt</span>
+                  <button class="btn btn-outline-secondary py-0 px-1" style="font-size:10px" onclick="resetPromptDefaults()" title="Reset to default">↻ Reset</button>
+                </label>
+                <textarea id="txt-prompt" class="form-control form-control-sm bg-dark border-secondary text-light" rows="3" style="font-size:11px;resize:vertical"></textarea>
+              </div>
+              <div class="flex-grow-1">
+                <label class="form-label small fw-semibold mb-1">Negative Prompt</label>
+                <textarea id="txt-neg-prompt" class="form-control form-control-sm bg-dark border-secondary text-light" rows="3" style="font-size:11px;resize:vertical"></textarea>
+              </div>
+            </div>
+          </div>
+
         </div><!-- /card-body -->
       </div><!-- /card -->
     </div><!-- /col-12 -->

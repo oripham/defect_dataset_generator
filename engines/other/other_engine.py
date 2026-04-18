@@ -195,7 +195,7 @@ def _try_genai(
 ) -> dict | None:
     """Try to use deep_generative for high-quality synthesis. Returns None if unavailable."""
     try:
-        from .deep_generative import generate as genai_generate
+        from ..core.deep_generative import generate as genai_generate
     except Exception:
         return None
 
@@ -207,10 +207,7 @@ def _try_genai(
     genai_params.setdefault("intensity", 0.6)
     genai_params.setdefault("naturalness", 0.6)
 
-    # Support custom prompt from UI
-    custom_prompt = params.get("prompt")
-    if custom_prompt:
-        genai_params["prompts"] = [custom_prompt]
+    # prompt and negative_prompt are forwarded via genai_params (copied from params)
 
     try:
         result = genai_generate(

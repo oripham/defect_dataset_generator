@@ -181,10 +181,13 @@ _DEFECT_WORDS = {
 
 
 def _build_prompt(defect_type: str, material: str,
-                  prompts: list = None, negative_prompt: str = None,
+                  prompts: list = None, prompt: str = None,
+                  negative_prompt: str = None,
                   clock_str: str = None) -> tuple:
-    """Build prompt. If prompts list provided from frontend, use it; else hardcode."""
-    if prompts:
+    """Build prompt. If prompt/prompts provided from frontend, use it; else hardcode."""
+    if prompt:
+        pos = prompt
+    elif prompts:
         pos = ", ".join(p for p in prompts if p)
     else:
         template_pos, _ = _PROMPTS.get(material, _PROMPTS["metal"])
@@ -296,6 +299,7 @@ def generate(
     prompt, negative = _build_prompt(
         defect_type, material,
         prompts=params.get("prompts"),
+        prompt=params.get("prompt"),
         negative_prompt=params.get("negative_prompt"),
         clock_str=_clock_str,
     )

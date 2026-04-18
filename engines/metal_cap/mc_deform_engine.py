@@ -253,7 +253,7 @@ def _cv_step(img_rgb: np.ndarray, params: dict):
 
 # ── SDXL refine step — pipeline_mc cell-15 / cell-16 ─────────────────────────
 
-def _sdxl_step(cv_result_rgb, mask_gray, ref_rgb, seed):
+def _sdxl_step(cv_result_rgb, mask_gray, ref_rgb, seed, prompt=None, negative_prompt=None):
     """
     Returns final_rgb (same HW as cv_result_rgb).
     Background for blend = cv_p (the CV result at 768px), NOT original good image.
@@ -287,8 +287,8 @@ def _sdxl_step(cv_result_rgb, mask_gray, ref_rgb, seed):
 
         with torch.inference_mode():
             ai_out = pipe(
-                prompt=_PROMPT,
-                negative_prompt=_NEG,
+                prompt=prompt or _PROMPT,
+                negative_prompt=negative_prompt or _NEG,
                 image=cv_pil,
                 mask_image=m_pil,
                 control_image=depth_pil,
@@ -353,7 +353,9 @@ def generate(base_image_b64: str, params: dict, mask_b64: str | None = None) -> 
     if do_refine:
         ref_rgb = decode_b64(ref_b64) if ref_b64 else None
         try:
-            final_rgb  = _sdxl_step(cv_result, defect_mask, ref_rgb, seed)
+            final_rgb  = _sdxl_step(cv_result, defect_mask, ref_rgb, seed,
+                                     prompt=params.get("prompt"),
+                                     negative_prompt=params.get("negative_prompt"))
             result_b64 = encode_b64(final_rgb)
             engine     = "cv+sdxl"
         except Exception as e:

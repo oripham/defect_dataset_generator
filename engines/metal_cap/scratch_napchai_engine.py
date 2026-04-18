@@ -221,7 +221,7 @@ def _cv_step(img_rgb: np.ndarray, params: dict):
 
 # ── SDXL refine step — pipeline_scratch cell-10 ──────────────────────────────
 
-def _sdxl_step(cv_res_rgb, mask_gray, ref_rgb, seed):
+def _sdxl_step(cv_res_rgb, mask_gray, ref_rgb, seed, prompt=None, negative_prompt=None):
     """
     Returns final_rgb (same HW as cv_res_rgb).
     Notebook: ai_res_low.resize(good_image.size, Image.LANCZOS)
@@ -255,8 +255,8 @@ def _sdxl_step(cv_res_rgb, mask_gray, ref_rgb, seed):
         with torch.inference_mode():
             pipe.to("cuda" if __import__("torch").cuda.is_available() else "cpu")
             ai_res_low = pipe(
-                prompt=_PROMPT,
-                negative_prompt=_NEG,
+                prompt=prompt or _PROMPT,
+                negative_prompt=negative_prompt or _NEG,
                 image=cv_low,
                 mask_image=mask_low,
                 control_image=depth_map,
@@ -308,7 +308,9 @@ def generate(base_image_b64: str, params: dict, mask_b64: str | None = None) -> 
     if do_refine:
         ref_rgb = decode_b64(ref_b64) if ref_b64 else None
         try:
-            final_rgb  = _sdxl_step(cv_res, mask_res, ref_rgb, seed)
+            final_rgb  = _sdxl_step(cv_res, mask_res, ref_rgb, seed,
+                                     prompt=params.get("prompt"),
+                                     negative_prompt=params.get("negative_prompt"))
             result_b64 = encode_b64(final_rgb)
             engine     = "cv+sdxl"
         except Exception as e:

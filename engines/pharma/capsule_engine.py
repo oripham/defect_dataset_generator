@@ -254,15 +254,18 @@ def generate(
     H, W = img_bgr.shape[:2]
 
     # dent: synth_dent handles detection internally
-    # crack / hollow / underfill: need detect_capsule_mask
+    # crack: round tablet → detect_tablet_mask (Otsu dual-polarity)
+    # hollow / underfill: elongated capsule → detect_capsule_mask (threshold=60)
     if defect_type == "dent":
         mask = np.ones((H, W), dtype=np.uint8) * 255
         bbox = (0, 0, W, H)
+    elif defect_type == "crack":
+        mask, bbox = _ce.detect_tablet_mask(img_bgr)
+        if (mask > 127).sum() < 50:
+            return {"error": "Tablet mask detection failed — tablet not found in image"}
     else:
         mask, bbox = _ce.detect_capsule_mask(img_bgr)
         if (mask > 127).sum() < 50:
-            if defect_type == "crack":
-                return {"error": "Tablet mask detection failed — tablet not found in image"}
             mask = np.ones((H, W), dtype=np.uint8) * 255
             bbox = (0, 0, W, H)
 

@@ -72,9 +72,15 @@
 
       <!-- AI Prompt -->
       <div id="ai-prompt-box" class="mb-3" style="display:none">
-        <label class="form-label small fw-semibold text-info">Prompt (SDXL)</label>
-        <textarea id="inp-prompt" class="form-control form-control-sm bg-dark border-secondary text-light"
-                  rows="2" placeholder="e.g. realistic scratch, rust surface..."></textarea>
+        <label class="form-label small fw-semibold text-info d-flex justify-content-between">
+          <span>Positive Prompt (SDXL)</span>
+          <button class="btn btn-outline-secondary py-0 px-1" style="font-size:10px" onclick="resetOtherPrompt()" title="Reset to default">↻</button>
+        </label>
+        <textarea id="inp-prompt" class="form-control form-control-sm bg-dark border-secondary text-light mb-2"
+                  rows="2" style="font-size:11px">plastic component surface defect, realistic foreign particle contamination, quality control photography, sharp focus, matte plastic surface</textarea>
+        <label class="form-label small fw-semibold text-info">Negative Prompt</label>
+        <textarea id="inp-neg-prompt" class="form-control form-control-sm bg-dark border-secondary text-light"
+                  rows="2" style="font-size:11px">cartoon, painting, blurry, low quality, metal, shiny, text</textarea>
       </div>
 
       <!-- Category for save -->
@@ -340,6 +346,11 @@ function onToggleAi() {
   document.getElementById('ai-prompt-box').style.display = isAi ? 'block' : 'none';
 }
 
+function resetOtherPrompt() {
+  document.getElementById('inp-prompt').value = "plastic component surface defect, realistic foreign particle contamination, quality control photography, sharp focus, matte plastic surface";
+  document.getElementById('inp-neg-prompt').value = "cartoon, painting, blurry, low quality, metal, shiny, text";
+}
+
 // ── Canvas drawing ────────────────────────────────────────────────────────────
 function drawToCanvas(canvasId, src) {
   return new Promise((resolve) => {
@@ -386,7 +397,8 @@ async function runPreview() {
           seed:      parseInt(document.getElementById('inp-seed').value) || 42,
           intensity: parseFloat(document.getElementById('slider-intensity').value),
           use_ai:    document.getElementById('chk-use-ai').checked,
-          prompt:    document.getElementById('inp-prompt').value
+          prompt:    document.getElementById('inp-prompt').value,
+          negative_prompt: document.getElementById('inp-neg-prompt').value
         }
       })
     });
@@ -491,7 +503,8 @@ async function startBatch() {
         seed:      parseInt(document.getElementById('inp-seed').value) || 42,
         intensity: parseFloat(document.getElementById('slider-intensity').value),
         use_ai:    document.getElementById('chk-use-ai').checked,
-        prompt:    document.getElementById('inp-prompt').value
+        prompt:    document.getElementById('inp-prompt').value,
+        negative_prompt: document.getElementById('inp-neg-prompt').value
       },
       n_images: n
     })

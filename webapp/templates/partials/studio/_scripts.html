@@ -35,11 +35,45 @@
 
   // ── State ─────────────────────────────────────────────────────────────────────
 
+  // ── Default SDXL Prompts per (group, defect) ──────────────────────────────────
+  const DEFAULT_PROMPTS = {
+    // Cap (via deep_generative / sdxl_refiner)
+    "cap|scratch":      { pos: "industrial metal surface defect, realistic surface scratch mark, professional quality inspection photograph, sharp focus, metallic surface", neg: "cartoon, painting, blurry, low quality, plastic, text" },
+    "cap|dent":         { pos: "industrial metal surface defect, realistic physical dent depression with shadow shading, surface deformation, concentric ring distortion, directional light shadow, professional quality inspection photograph, sharp focus, metallic surface", neg: "cartoon, painting, blurry, low quality, plastic, text" },
+    "cap|plastic_flow": { pos: "plastic component surface defect, realistic molten plastic flow smear, glossy streak, flow mark haze, quality control photography, sharp focus, matte plastic surface", neg: "cartoon, painting, blurry, low quality, metal, shiny, text" },
+    "cap|dark_spots":   { pos: "industrial metal surface defect, realistic foreign particle contamination, professional quality inspection photograph, sharp focus, metallic surface", neg: "cartoon, painting, blurry, low quality, plastic, text" },
+    "cap|thread":       { pos: "industrial metal surface defect, realistic foreign particle contamination, professional quality inspection photograph, sharp focus, metallic surface", neg: "cartoon, painting, blurry, low quality, plastic, text" },
+    // Pharma (capsule_experiments SDXL)
+    "pharma|crack":     { pos: "pharmaceutical tablet surface defect, realistic surface crack line, quality inspection close-up, sharp focus, uniform background", neg: "cartoon, painting, blurry, low quality, text" },
+    "pharma|dent":      { pos: "pharmaceutical tablet surface defect, realistic physical dent depression, quality inspection close-up, sharp focus, uniform background", neg: "cartoon, painting, blurry, low quality, text" },
+    "pharma|hollow":    { pos: "pharmaceutical hard gelatin capsule completely empty inside, transparent gelatin shell with bright glossy specular highlight on outer rim, dark black void visible through transparent shell in center, smooth glossy gelatin surface texture, macro industrial inspection photo, grayscale, photorealistic, sharp focus", neg: "color, powder filled interior, bright center, uniform brightness, matte flat surface, watermark, text, blur, cartoon, deformed shape" },
+    "pharma|underfill": { pos: "pharmaceutical capsule slightly underfilled with content, surface marginally darker and subtly compressed, minor surface deformation visible, matte gray, industrial quality inspection photo, grayscale, photorealistic, macro photography, sharp focus", neg: "color, completely hollow, severely deformed, perfect filled capsule, bright shiny, watermark, text, blur, cartoon" },
+    // Metal Cap (mc_deform / ring_fracture / scratch)
+    "metal_cap|mc_deform":     { pos: "irregular industrial metal defect, crushed rim, jagged metallic edges, deep dent, heavy specular reflections, polished chrome, photorealistic, high contrast, non-geometric damage", neg: "smooth, perfect circle, plastic, matte, flat, low quality, sphere" },
+    "metal_cap|ring_fracture": { pos: "extremely sharp industrial metal surface, hyper-detailed steel grain, microscopic metallic scratches, high contrast, 8k, ultra sharp focus", neg: "blur, soft, out of focus, bokeh, smooth, plastic, paint, fog, glowing edge, noise, compression artifacts" },
+    "metal_cap|scratch":       { pos: "jagged metallic fracture, deep industrial micro-cracks, weathered steel texture, hyper-realistic, 8k, industrial damage", neg: "color, bronze, gold, plastic, blurry, smooth, artificial seam, lowres, noise" },
+  };
+
+  function getDefaultPrompt() {
+    const defectKey = document.getElementById("sel-defect").value;
+    const key = currentGroup + "|" + defectKey;
+    return DEFAULT_PROMPTS[key] || { pos: "", neg: "" };
+  }
+
+  function resetPromptDefaults() {
+    const dp = getDefaultPrompt();
+    document.getElementById("txt-prompt").value = dp.pos;
+    document.getElementById("txt-neg-prompt").value = dp.neg;
+  }
+
   // ── Conditional AI Parameters ──────────────────────────────────────────────────
   function toggleAIParams() {
     const isAi = document.getElementById("chk-use-ai").checked;
     const divBlock = document.getElementById("params-diversity");
     if(divBlock) divBlock.style.display = isAi ? "flex" : "none";
+    const promptBlock = document.getElementById("params-prompt");
+    if(promptBlock) promptBlock.classList.toggle("d-none", !isAi);
+    if(promptBlock) promptBlock.classList.toggle("d-flex", isAi);
   }
   let currentGroup = "cap";
   let okImageB64 = null;
@@ -193,6 +227,7 @@
       _mcResetCanvas();
       clearPanels(["panel-mask"]);
     }
+    resetPromptDefaults();
     toggleAIParams();
   }
 
@@ -469,6 +504,12 @@
       refine_ai: isAiChecked, // For pharma
       use_ai: isAiChecked, // Standardized alias
     };
+    if (isAiChecked) {
+      const pp = (document.getElementById("txt-prompt")?.value || "").trim();
+      const np = (document.getElementById("txt-neg-prompt")?.value || "").trim();
+      if (pp) p.prompt = pp;
+      if (np) p.negative_prompt = np;
+    }
     if (defectKey === "crack") {
       p.break_type = document.getElementById("sel-break-type").value;
       p.depth = parseInt(document.getElementById("slider-depth").value) / 100;
