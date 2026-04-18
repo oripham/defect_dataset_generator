@@ -99,7 +99,104 @@
 
 {% block scripts %}
 <script>
+console.log("[Dashboard] JavaScript initializing...");
 let allData = [];
+
+// --- Global Functions ---
+
+async function deleteEval(id, btnElement) {
+  console.log("[Dashboard] deleteEval called for ID:", id);
+  
+  // Check if this is the first or second click
+  if (!btnElement.dataset.confirming) {
+    console.log("[Dashboard] Entering confirmation state for button.");
+    btnElement.dataset.confirming = "true";
+    btnElement.innerHTML = '<span style="font-size: 0.7rem; font-weight: bold;">CONFIRM / 削除？</span>';
+    btnElement.className = "btn btn-sm btn-danger";
+    
+    // Auto-reset after 3 seconds if not clicked again
+    setTimeout(() => {
+      if (btnElement.dataset.confirming === "true") {
+        console.log("[Dashboard] Deletion timeout - resetting button.");
+        btnElement.dataset.confirming = "";
+        btnElement.innerHTML = "🗑";
+        btnElement.className = "btn btn-sm btn-outline-danger";
+      }
+    }, 3000);
+    return;
+  }
+
+  // Second click: perform the actual delete
+  console.log("[Dashboard] Confirmed. Sending DELETE request to server...");
+  btnElement.disabled = true;
+  btnElement.innerHTML = "⌛";
+
+  try {
+    const res = await fetch(`/api/eval/delete/${id}`, { method: 'DELETE' });
+    
+    if (!res.ok) {
+      const errTxt = await res.text();
+      console.error("[Dashboard] Delete failed:", res.status, errTxt);
+      alert(`Delete rejected (HTTP ${res.status}).\nDetails: ` + errTxt.substring(0, 50));
+      // Reset button
+      btnElement.disabled = false;
+      btnElement.dataset.confirming = "";
+      btnElement.innerHTML = "🗑";
+      btnElement.className = "btn btn-sm btn-outline-danger";
+      return;
+    }
+    
+    const json = await res.json();
+    if(json.status === 'ok') {
+      console.log("[Dashboard] Delete successful.");
+      allData = allData.filter(d => d.id !== id);
+      applyFilters();
+    } else {
+      console.error("[Dashboard] Server returned error during delete:", json.error);
+      alert("Delete failed on server: " + (json.error || 'Unknown'));
+      btnElement.disabled = false;
+    }
+
+  } catch (err) {
+    console.error("[Dashboard] JS Error in deleteEval:", err);
+    alert("Javascript error during delete: " + err.message);
+    btnElement.disabled = false;
+  }
+}
+window.deleteEval = deleteEval;
+
+async function clearAllData() {
+  console.log("[Dashboard] clearAllData called");
+  try {
+    const isSure = window.confirm("⚠️ WARNING: Are you very sure you want to delete ALL evaluations and ALL saved pictures from the database?\n⚠️ 警告: データベースからすべての評価とすべての保存済み写真を削除してもよろしいですか？");
+    if (!isSure) return;
+
+    const res = await fetch(`/api/eval/delete/all`, { method: 'DELETE' });
+    
+    if (!res.ok) {
+      const errTxt = await res.text();
+      console.error("[Dashboard] Clear all failed:", res.status, errTxt);
+      alert(`Clear all rejected (HTTP ${res.status}).\nDetails: ` + errTxt.substring(0, 100));
+      return;
+    }
+    
+    const json = await res.json();
+    if (json.status === 'ok') {
+      console.log("[Dashboard] Clear all successful.");
+      allData = [];
+      applyFilters();
+      alert("Database has been completely cleared.");
+    } else {
+      console.error("[Dashboard] Server error during clear all:", json.error);
+      alert("Clear all failed on server: " + (json.error || 'Unknown'));
+    }
+
+  } catch (err) {
+    console.error("[Dashboard] JS Error in clearAllData:", err);
+    alert("Javascript error during clear all: " + err.message);
+  }
+}
+window.clearAllData = clearAllData;
 
 async function loadData() {
   const tbody = document.getElementById('eval-tbody');
@@ -190,7 +287,7 @@ function renderTable(data) {
           </div>
         </td>
         <td class="text-end">
-          <button class="btn btn-sm btn-outline-danger" onclick="deleteEval('${d.id}')">🗑</button>
+          <button class="btn btn-sm btn-outline-danger" onclick="event.stopPropagation(); deleteEval('${d.id}', this)" title="Delete record">🗑</button>
         </td>
       </tr>
     `;
@@ -217,63 +314,9 @@ function openModal(id, baseSrc, maskSrc, resSrc) {
   modalObj.show();
 }
 
-window.deleteEval = async function(id) {
-  try {
-    const isSure = window.confirm("Are you sure you want to permanently delete this record AND its physical images?");
-    if (!isSure) return;
-
-    fetch(`/api/eval/delete/${id}`, { method: 'DELETE' })
-      .then(async res => {
-         if (!res.ok) {
-           const errTxt = await res.text();
-           alert(`Delete rejected (HTTP ${res.status}).\nDetails: ` + errTxt.substring(0, 100));
-           return;
-         }
-         const json = await res.json();
-         if(json.status === 'ok') {
-           allData = allData.filter(d => d.id !== id);
-           applyFilters();
-         } else {
-           alert("Delete failed on server: " + (json.error || 'Unknown'));
-         }
-      })
-      .catch(e => alert("Network error deleting: " + e.message));
-
-  } catch (err) {
-    alert("Javascript crash inside delete: " + err.message);
-  }
-};
-
-window.clearAllData = async function() {
-  try {
-    const isSure = window.confirm("⚠️ WARNING: Are you very sure you want to delete ALL evaluations and ALL saved pictures from the database?");
-    if (!isSure) return;
-
-    fetch(`/api/eval/delete/all`, { method: 'DELETE' })
-      .then(async res => {
-         if (!res.ok) {
-           const errTxt = await res.text();
-           alert(`Clear all rejected (HTTP ${res.status}).\nDetails: ` + errTxt.substring(0, 100));
-           return;
-         }
-         const json = await res.json();
-         if (json.status === 'ok') {
-           allData = [];
-           applyFilters();
-           alert("Database has been completely cleared.");
-         } else {
-           alert("Clear all failed on server: " + (json.error || 'Unknown'));
-         }
-      })
-      .catch(e => alert("Network error clearing database: " + e.message));
-
-  } catch (err) {
-    alert("Javascript crash inside clearAllData: " + err.message);
-  }
-};
-
 // Initial load
 document.addEventListener("DOMContentLoaded", () => {
+  console.log("[Dashboard] DOM loaded, fetching data...");
   loadData();
 });
 </script>

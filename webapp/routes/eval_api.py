@@ -41,6 +41,7 @@ def list_evals():
 
 @eval_bp.route('/delete/<eval_id>', methods=['DELETE'])
 def delete_eval(eval_id):
+    print(f"[eval_api] Request to delete evaluation: {eval_id}")
     try:
         success = delete_evaluation(eval_id)
         if success:
@@ -54,6 +55,7 @@ def delete_eval(eval_id):
 
 @eval_bp.route('/delete/all', methods=['DELETE'])
 def clear_all():
+    print("[eval_api] Request to CLEAR ALL evaluations")
     try:
         success = clear_all_evaluations()
         if success:

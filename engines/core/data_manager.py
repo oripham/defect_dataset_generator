@@ -114,6 +114,8 @@ def delete_evaluation(eval_id: str) -> bool:
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
+    print(f"[data_manager] Deleting evaluation: {eval_id}")
+    
     # Get paths first to delete files
     cursor.execute('SELECT base_image_path FROM evaluations WHERE id = ?', (eval_id,))
     row = cursor.fetchone()
@@ -133,8 +135,9 @@ def delete_evaluation(eval_id: str) -> bool:
         folder_path = os.path.dirname(base_img_path)
         try:
             shutil.rmtree(folder_path)
+            print(f"[data_manager] Physically removed directory: {folder_path}")
         except Exception as e:
-            print(f"Failed to cleanly remove directory {folder_path}: {e}")
+            print(f"[data_manager] Failed to cleanly remove directory {folder_path}: {e}")
             
     return True
 
