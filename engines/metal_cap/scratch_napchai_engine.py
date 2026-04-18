@@ -111,7 +111,7 @@ def _synthesize_scratch_procedural(polar_img, polar_mask, rim_col):
 
     y_coords, x_coords = np.where(clean_mask > 0)
     if len(x_coords) > 0:
-        num_events = _random.randint(4, 7)
+        num_events = _random.randint(7, 12)
         for _ in range(num_events):
             event_type = _random.choice(["slash", "scuff", "pitting"])
             idx        = _random.randint(0, len(x_coords) - 1)
@@ -119,7 +119,7 @@ def _synthesize_scratch_procedural(polar_img, polar_mask, rim_col):
 
             if event_type == "slash":
                 angle  = _random.uniform(0, 2 * math.pi)
-                length = _random.randint(40, 150)
+                length = _random.randint(60, 250)
                 curr_x, curr_y = float(sx), float(sy)
                 for _ in range(length):
                     curr_x += math.cos(angle) + _random.uniform(-0.2, 0.2)
@@ -159,8 +159,11 @@ def _synthesize_scratch_procedural(polar_img, polar_mask, rim_col):
             trench_3 = trench_layer
             glint_3  = glint_layer
 
-        res_f = base_f * (1.0 - trench_3 * 0.65 * mask_f3)
-        res_f = np.clip(res_f + glint_3 * 0.35 * mask_f3, 0, 1)
+        # Recolor: make them grey-white instead of black by using additive blending
+        # base_f is slightly darkened to provide depth, then strongly brightened
+        res_f = base_f * (1.0 - trench_3 * 0.15 * mask_f3) # Subtle darkening for edge
+        res_f = np.clip(res_f + trench_3 * 0.75 * mask_f3, 0, 1) # Bright grey-white scuff
+        res_f = np.clip(res_f + glint_3 * 0.45 * mask_f3, 0, 1) # Stronger glint
         return (res_f * 255.0).astype(np.uint8), clean_mask
 
     return polar_img, clean_mask
