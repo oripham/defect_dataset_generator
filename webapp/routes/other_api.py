@@ -6,7 +6,6 @@ Endpoints:
   POST /api/other/preview          → generate 1 image (reference-based)
   POST /api/other/batch            → start batch job (background thread)
   GET  /api/other/batch/<job_id>   → poll batch progress
-  GET  /api/other/ok-images        → list OK images for preview strip
   POST /api/other/save             → save result to disk
   GET  /api/other/results          → list saved result files
 
@@ -66,14 +65,6 @@ def _ok_images_for(category: str) -> list[Path]:
     return files
 
 
-def _ng_images_for(category: str) -> list[Path]:
-    ng_dir = OTHER_ROOT / category / "ng"
-    files: list[Path] = []
-    for ext in ["*.png", "*.jpg", "*.bmp"]:
-        files += sorted(ng_dir.glob(ext))
-    return files
-
-
 def _img_to_b64(img_bgr: np.ndarray) -> str:
     _, buf = cv2.imencode(".png", img_bgr)
     return base64.b64encode(buf).decode("utf-8")
@@ -99,86 +90,6 @@ def _make_debug_panel(ok_bgr, mask_gray, result_bgr, panel_h=240) -> np.ndarray:
         pw = int(w * panel_h / h)
         panels.append(cv2.resize(img, (pw, panel_h)))
     return np.hstack(panels)
-
-
-# ── API: categories list ──────────────────────────────────────────────────────
-
-@other_bp.get("/api/other/categories")
-def api_categories():
-    """List available categories under defect_samples/Other/."""
-    out = {}
-    if OTHER_ROOT.exists():
-        for d in sorted(OTHER_ROOT.iterdir()):
-            if d.is_dir():
-                ok_dir = d / "ok"
-                ng_dir = d / "ng"
-                n_ok = len(list(ok_dir.glob("*.png")) + list(ok_dir.glob("*.jpg"))) if ok_dir.exists() else 0
-                n_ng = len(list(ng_dir.glob("*.png")) + list(ng_dir.glob("*.jpg"))) if ng_dir.exists() else 0
-                out[d.name] = {"display": d.name, "n_ok": n_ok, "n_ng": n_ng}
-    return jsonify(out)
-
-
-# ── API: OK images ────────────────────────────────────────────────────────────
-
-@other_bp.get("/api/other/ok-images")
-def api_ok_images():
-    category = request.args.get("category", "")
-    files = _ok_images_for(category)
-    out = []
-    for f in files[:20]:
-        ok_bgr = cv2.imread(str(f))
-        if ok_bgr is None:
-            continue
-        h, w = ok_bgr.shape[:2]
-        th = 80
-        tw = int(w * th / h)
-        thumb = cv2.resize(ok_bgr, (tw, th))
-        _, buf = cv2.imencode(".png", thumb)
-        out.append({
-            "filename": f.name,
-            "path":     str(f),
-            "thumb_b64": base64.b64encode(buf).decode("utf-8"),
-        })
-    return jsonify(images=out, total=len(files))
-
-
-# ── API: NG images ────────────────────────────────────────────────────────────
-
-@other_bp.get("/api/other/ng-images")
-def api_ng_images():
-    category = request.args.get("category", "")
-    files = _ng_images_for(category)
-    out = []
-    for f in files[:20]:
-        ng_bgr = cv2.imread(str(f))
-        if ng_bgr is None:
-            continue
-        h, w = ng_bgr.shape[:2]
-        th = 80
-        tw = int(w * th / h)
-        thumb = cv2.resize(ng_bgr, (tw, th))
-        _, buf = cv2.imencode(".png", thumb)
-        out.append({
-            "filename": f.name,
-            "path":     str(f),
-            "thumb_b64": base64.b64encode(buf).decode("utf-8"),
-        })
-    return jsonify(images=out, total=len(files))
-
-
-# ── API: load full image ─────────────────────────────────────────────────────
-
-@other_bp.get("/api/other/load-image")
-def api_load_image():
-    from flask import send_file
-    path = request.args.get("path", "")
-    if not path or not os.path.isfile(path):
-        return jsonify(error="File not found"), 404
-    try:
-        Path(path).resolve().relative_to(_DEFECT_SAMPLES.resolve())
-    except ValueError:
-        return jsonify(error="Path not allowed"), 403
-    return send_file(path)
 
 
 # ── API: preview ──────────────────────────────────────────────────────────────

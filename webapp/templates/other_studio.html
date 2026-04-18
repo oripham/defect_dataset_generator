@@ -15,19 +15,13 @@
 
       <!-- Upload OK image -->
       <label class="form-label small fw-semibold text-success">1. OK Image (Good product)</label>
-      <input type="file" id="inp-ok-file" class="form-control form-control-sm bg-dark border-secondary text-light mb-2"
+      <input type="file" id="inp-ok-file" class="form-control form-control-sm bg-dark border-secondary text-light mb-3"
              accept=".png,.jpg,.bmp" onchange="onOkUpload(this)">
-      <button class="btn btn-outline-secondary btn-sm w-100 mb-3" onclick="loadOkLibrary()">
-        📂 Load from library
-      </button>
 
       <!-- Upload NG reference -->
       <label class="form-label small fw-semibold text-danger">2. NG Reference (Defect sample)</label>
-      <input type="file" id="inp-ng-file" class="form-control form-control-sm bg-dark border-secondary text-light mb-2"
+      <input type="file" id="inp-ng-file" class="form-control form-control-sm bg-dark border-secondary text-light mb-3"
              accept=".png,.jpg,.bmp" onchange="onNgUpload(this)">
-      <button class="btn btn-outline-secondary btn-sm w-100 mb-3" onclick="loadNgLibrary()">
-        📂 Load from library
-      </button>
 
       <hr class="border-secondary my-2">
 
@@ -71,9 +65,16 @@
         <button class="btn btn-outline-secondary" onclick="randomSeed()" title="Random">🎲</button>
       </div>
 
-      <div class="form-check form-switch mb-3">
-        <input class="form-check-input" type="checkbox" id="chk-use-ai">
+      <div class="form-check form-switch mb-2">
+        <input class="form-check-input" type="checkbox" id="chk-use-ai" onchange="onToggleAi()">
         <label class="form-check-label small fw-semibold" for="chk-use-ai">✨ Use AI (SDXL)</label>
+      </div>
+
+      <!-- AI Prompt -->
+      <div id="ai-prompt-box" class="mb-3" style="display:none">
+        <label class="form-label small fw-semibold text-info">Prompt (SDXL)</label>
+        <textarea id="inp-prompt" class="form-control form-control-sm bg-dark border-secondary text-light"
+                  rows="2" placeholder="e.g. realistic scratch, rust surface..."></textarea>
       </div>
 
       <!-- Category for save -->
@@ -140,20 +141,6 @@
       <!-- Save / Download -->
       <button class="btn btn-success btn-sm w-100 mb-2" onclick="saveResult()">💾 Save</button>
       <button class="btn btn-outline-secondary btn-sm w-100 mb-3" onclick="downloadResult()">⬇ Download PNG</button>
-
-      <!-- OK Library -->
-      <div>
-        <div class="small fw-semibold text-muted mb-1">OK Library</div>
-        <div id="ok-library" class="d-flex flex-wrap gap-1" style="max-height:120px;overflow-y:auto"></div>
-      </div>
-
-      <hr class="border-secondary my-2">
-
-      <!-- NG Library -->
-      <div>
-        <div class="small fw-semibold text-muted mb-1">NG Library</div>
-        <div id="ng-library" class="d-flex flex-wrap gap-1" style="max-height:120px;overflow-y:auto"></div>
-      </div>
 
       <hr class="border-secondary my-2">
 
@@ -348,74 +335,9 @@ document.getElementById('slider-brush').oninput = function() {
   document.getElementById('val-brush').textContent = this.value;
 };
 
-// ── Load libraries ────────────────────────────────────────────────────────────
-async function loadOkLibrary() {
-  const cat = document.getElementById('inp-category').value || 'default';
-  const r = await fetch(`/api/other/ok-images?category=${cat}`);
-  if (!r.ok) return;
-  const data = await r.json();
-  const box = document.getElementById('ok-library');
-  box.innerHTML = '';
-  if (!data.images?.length) { box.innerHTML = '<span class="small text-muted">No images</span>'; return; }
-  data.images.forEach(img => {
-    const el = document.createElement('img');
-    el.src = 'data:image/png;base64,' + img.thumb_b64;
-    el.title = img.filename;
-    el.style.cssText = 'height:40px;cursor:pointer;border:2px solid transparent;border-radius:4px';
-    el.onclick = () => selectImage(img, el, 'ok');
-    box.appendChild(el);
-  });
-}
-
-async function loadNgLibrary() {
-  const cat = document.getElementById('inp-category').value || 'default';
-  const r = await fetch(`/api/other/ng-images?category=${cat}`);
-  if (!r.ok) return;
-  const data = await r.json();
-  const box = document.getElementById('ng-library');
-  box.innerHTML = '';
-  if (!data.images?.length) { box.innerHTML = '<span class="small text-muted">No images</span>'; return; }
-  data.images.forEach(img => {
-    const el = document.createElement('img');
-    el.src = 'data:image/png;base64,' + img.thumb_b64;
-    el.title = img.filename;
-    el.style.cssText = 'height:40px;cursor:pointer;border:2px solid transparent;border-radius:4px';
-    el.onclick = () => selectImage(img, el, 'ng');
-    box.appendChild(el);
-  });
-}
-
-async function selectImage(img, el, type) {
-  const libId = type === 'ok' ? 'ok-library' : 'ng-library';
-  document.querySelectorAll(`#${libId} img`).forEach(e => e.style.borderColor = 'transparent');
-  el.style.borderColor = '#0d6efd';
-
-  const fullResp = await fetch(`/api/other/load-image?path=${encodeURIComponent(img.path)}`);
-  if (fullResp.ok) {
-    const blob = await fullResp.blob();
-    const dataUrl = await blobToDataUrl(blob);
-    const b64 = dataUrl.split(',')[1];
-    if (type === 'ok') {
-      okImageB64 = b64;
-      await drawToCanvas('canvas-ok', dataUrl);
-      initMaskCanvas('ok');
-      status('OK loaded: ' + img.filename);
-    } else {
-      ngImageB64 = b64;
-      await drawToCanvas('canvas-ng', dataUrl);
-      initMaskCanvas('ng');
-      status('NG loaded: ' + img.filename);
-    }
-  }
-}
-
-function blobToDataUrl(blob) {
-  return new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload = e => res(e.target.result);
-    r.onerror = rej;
-    r.readAsDataURL(blob);
-  });
+function onToggleAi() {
+  const isAi = document.getElementById('chk-use-ai').checked;
+  document.getElementById('ai-prompt-box').style.display = isAi ? 'block' : 'none';
 }
 
 // ── Canvas drawing ────────────────────────────────────────────────────────────
@@ -463,7 +385,8 @@ async function runPreview() {
         params: {
           seed:      parseInt(document.getElementById('inp-seed').value) || 42,
           intensity: parseFloat(document.getElementById('slider-intensity').value),
-          use_ai:    document.getElementById('chk-use-ai').checked
+          use_ai:    document.getElementById('chk-use-ai').checked,
+          prompt:    document.getElementById('inp-prompt').value
         }
       })
     });
@@ -567,7 +490,8 @@ async function startBatch() {
       params: {
         seed:      parseInt(document.getElementById('inp-seed').value) || 42,
         intensity: parseFloat(document.getElementById('slider-intensity').value),
-        use_ai:    document.getElementById('chk-use-ai').checked
+        use_ai:    document.getElementById('chk-use-ai').checked,
+        prompt:    document.getElementById('inp-prompt').value
       },
       n_images: n
     })
@@ -621,8 +545,6 @@ function status(msg) {
 }
 
 // Init
-loadOkLibrary();
-loadNgLibrary();
 loadResults();
 </script>
 {% endblock %}

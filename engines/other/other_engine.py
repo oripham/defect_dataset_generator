@@ -207,6 +207,11 @@ def _try_genai(
     genai_params.setdefault("intensity", 0.6)
     genai_params.setdefault("naturalness", 0.6)
 
+    # Support custom prompt from UI
+    custom_prompt = params.get("prompt")
+    if custom_prompt:
+        genai_params["prompts"] = [custom_prompt]
+
     try:
         result = genai_generate(
             base_image=ok_rgb,
