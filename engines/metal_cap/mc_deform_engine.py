@@ -342,7 +342,7 @@ def generate(base_image_b64: str, params: dict, mask_b64: str | None = None) -> 
     _, mbuf = cv2.imencode(".png", defect_mask)
     mask_b64 = _b64.b64encode(mbuf).decode()
 
-    do_refine = params.get("sdxl_refine", False)
+    do_refine = params.get("use_sdxl") or params.get("sdxl_refine") or False
     seed      = int(params.get("seed", 42))
     ref_b64   = params.get("ref_image_b64")
 

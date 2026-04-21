@@ -276,7 +276,10 @@ def generate(
 
     # SDXL texture refinement — runs on surroundings, defect pixels protected
     sdxl_ran = False
-    if params.get("sdxl_refine", True):
+    do_refine = params.get("use_sdxl")
+    if do_refine is None: do_refine = params.get("sdxl_refine", True)
+    
+    if do_refine:
         refiner = _get_sdxl_refiner()
         if refiner is not None:
             try:

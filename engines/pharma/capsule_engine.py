@@ -295,7 +295,7 @@ def generate(
         result_bgr = cv2.resize(result_bgr, (img_bgr.shape[1], img_bgr.shape[0]))
 
     # --- SDXL Texture Refinement (Global toggle for Capsule) ---
-    if params.get("sdxl", False) and hasattr(_ce, "_apply_sdxl_refine_to_bgr"):
+    if (params.get("use_sdxl") or params.get("sdxl")) and hasattr(_ce, "_apply_sdxl_refine_to_bgr"):
         try:
             # Force enable the singleton flag if requested by API
             _ce.SDXL_REFINE_ENABLED = True

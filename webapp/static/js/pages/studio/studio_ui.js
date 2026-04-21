@@ -316,6 +316,7 @@ function buildParams() {
     intensity: parseInt(document.getElementById("slider-intensity")?.value || 70) / 100,
     seed: parseInt(document.getElementById("inp-seed")?.value) || 42,
     sdxl: isAiChecked,
+    use_sdxl: isAiChecked,
     use_genai: isAiChecked,
     sdxl_refine: isAiChecked,
     refine_ai: isAiChecked,

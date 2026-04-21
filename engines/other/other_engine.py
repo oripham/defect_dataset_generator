@@ -287,7 +287,9 @@ def generate(
         ref_aligned = cv2.resize(ref_bgr, (w, h))
 
     # Try GenAI first
-    use_ai = params.get("use_ai", params.get("use_genai", True))
+    use_ai = params.get("use_sdxl") or params.get("use_ai") or params.get("use_genai")
+    if use_ai is None: use_ai = True
+    if params.get("use_sdxl") is False: use_ai = False
     engine_used = "cv_paste"
     result_bgr = None
 

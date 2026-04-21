@@ -1,30 +1,34 @@
-# Server-side requirements (FLUX-Ready, Optimized for RunPod A40)
-# Recommended Base image: runpod/pytorch:2.4.0-py3.11-cuda12.4.1
+# server/requirements_server.txt — Optimized for FLUX.1-dev on NVIDIA A40 (48GB)
+# Base Image: runpod/pytorch:2.4.0-py3.11-cuda12.4.1
 
 # ── FastAPI / Server ──────────────────────────────────────────────────────────
 fastapi
 uvicorn[standard]
 python-multipart
 
-# ── Core ML ────────────────────────────────────────────────────────────────────
-numpy<2.0
-diffusers>=0.30.2        # Required for FLUX
-transformers>=4.44.0     # Required for FLUX
-accelerate>=0.33.0       # Required for FLUX
-huggingface-hub
-safetensors
+# ── Core AI / FLUX Stack ───────────────────────────────────────────────────────
+# These versions are critical for FLUX support
+diffusers>=0.31.0
+transformers>=4.45.0
+accelerate>=0.34.0
 sentencepiece
-bitsandbytes             # For potential fp8 quantization
+protobuf
+huggingface-hub>=0.25.0
+safetensors
+bitsandbytes>=0.43.0
+peft                  # For future LoRA support
+optimum               # For inference acceleration
 
-# ── Image / Vision ─────────────────────────────────────────────────────────────
+# ── Image / Vision / CV ────────────────────────────────────────────────────────
 opencv-python-headless
 Pillow
-scipy                    # Gaussian filter fallback
-timm                     # Required by transformers depth-estimation pipeline
+scipy                 # Required for Gaussian blending and CV filters
+timm                  # Required by transformers depth-estimation (DPT/Zoe)
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
 PyYAML
 tqdm
 
-# ── IP-Adapter ────────────────────────────────────────────────────────────────
+# ── IP-Adapter ───────────────────────────────────────────────────────────────
+# Keep for SDXL backward compatibility
 git+https://github.com/tencent-ailab/IP-Adapter.git@main

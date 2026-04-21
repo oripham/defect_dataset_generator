@@ -725,7 +725,7 @@ def generate(base_image_b64: str, params: dict) -> dict:
     pre_b64 = encode_b64(cv_rgb)
     mask_b64 = _encode_gray_png_b64(mask_gray)
 
-    do_refine = bool(params.get("sdxl_refine", False))
+    do_refine = params.get("use_sdxl") or params.get("sdxl_refine") or False
     if do_refine:
         try:
             refined_rgb = _sdxl_refine(cv_rgb, mask_gray, params)
