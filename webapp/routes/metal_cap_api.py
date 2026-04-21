@@ -9,7 +9,6 @@ Endpoints:
   POST /api/metal_cap/batch              → start batch job (background thread)
   GET  /api/metal_cap/batch/<job_id>     → poll batch progress
   GET  /api/metal_cap/ok-images          → list OK images for a defect class
-  GET  /api/metal_cap/load-image         → serve full OK image by absolute path (safe)
   POST /api/metal_cap/save               → save result to disk
   GET  /api/metal_cap/results            → list saved result files
 
@@ -116,20 +115,6 @@ def api_products():
         out[dk] = {"display": dv["display"], "n_ok": n_ok}
     return jsonify(out)
 
-
-# ── API: load full image ──────────────────────────────────────────────────────
-@metal_cap_bp.get("/api/metal_cap/load-image")
-def api_load_image():
-    """Serve a full OK image by absolute path."""
-    from flask import send_file
-    path = request.args.get("path", "")
-    if not path or not os.path.isfile(path):
-        return jsonify(error="File not found"), 404
-    try:
-        Path(path).resolve().relative_to(_DEFECT_SAMPLES.resolve())
-    except ValueError:
-        return jsonify(error="Path not allowed"), 403
-    return send_file(path)
 
 
 # ── API: OK images ─────────────────────────────────────────────────────────────
@@ -346,27 +331,4 @@ def api_batch_status(job_id):
     if job is None:
         return jsonify(error="job not found"), 404
     return jsonify(job)
-
-
-# ── API: results list ─────────────────────────────────────────────────────────
-@metal_cap_bp.get("/api/metal_cap/results")
-def api_results():
-    defect_type = request.args.get("defect_type", "")
-    limit = int(request.args.get("limit", 40))
-
-    pattern = str(RESULTS_ROOT / "**" / "*.png")
-    files = sorted(glob.glob(pattern, recursive=True), reverse=True)
-
-    out = []
-    for fpath in files:
-        p = Path(fpath)
-        if p.name.startswith("debug_"):
-            continue
-        if defect_type and defect_type.lower() not in p.name.lower():
-            continue
-        out.append({"path": fpath, "filename": p.name})
-        if len(out) >= limit:
-            break
-
-    return jsonify(results=out, total=len(out))
 

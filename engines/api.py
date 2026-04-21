@@ -36,6 +36,7 @@ if os.path.abspath(_SCRIPTS) not in sys.path:
 
 from .core.router_engine import route, get_default_engine
 from .utils import decode_b64, decode_b64_gray
+from .models._napchai_models import load_models as _preload_napchai
 
 # ── Lazy engine imports (only load when first used) ───────────────────────────
 _cap_generate        = None
@@ -84,6 +85,35 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def startup_event():
+    """
+    Pre-load heavy AI models (SDXL, ControlNet, IP-Adapter) on server boot.
+    This prevents the initial 524 Cloudflare timeout during the first generation.
+    """
+    print("\n" + "="*60)
+    print("🚀 [STARTUP] Warming up AI Engines...")
+    print("="*60)
+    
+    # 1. Load the shared Napchai (Metal Cap) models into VRAM
+    try:
+        # This takes 100-300s on the first run (download) or 30-60s on subsequent runs (VRAM load)
+        _preload_napchai()
+        print("✅ [STARTUP] AI Models (SDXL/CN/IPA) ready in VRAM.")
+    except Exception as e:
+        print(f"❌ [STARTUP] Failed to preload models: {e}")
+
+    # 2. Pre-import engine modules to warm up python cache
+    print("📦 [STARTUP] Indexing defect engines...")
+    _load_mc_deform()
+    _load_ring_fracture()
+    _load_scratch_napchai()
+    
+    print("="*60)
+    print("🌟 [STARTUP] BACKEND IS FULLY READY")
+    print("="*60 + "\n")
 
 
 # ── Defect type groups (for ref validation) ───────────────────────────────────

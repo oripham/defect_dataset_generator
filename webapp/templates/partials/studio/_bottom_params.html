@@ -180,6 +180,25 @@
             </div>
           </div>
 
+          <!-- ═══ Metal Cap: Scratch → Severity, Count ═══ -->
+          <div id="params-napchai-scratch" class="d-none flex-wrap gap-4 align-items-end">
+            <div style="width: 150px;">
+              <label class="form-label small fw-semibold mb-1">Severity / 深刻度</label>
+              <select id="sel-severity" class="form-select form-select-sm bg-dark border-secondary text-light">
+                <option value="light">Light / 軽微</option>
+                <option value="medium" selected>Medium / 中程度</option>
+                <option value="heavy">Heavy / 重大</option>
+              </select>
+            </div>
+            <div style="width: 140px;">
+              <label class="form-label small fw-semibold d-flex justify-content-between mb-1">
+                <span>Count / 個数</span><span id="val-count" class="text-info">2</span>
+              </label>
+              <input type="range" class="form-range" id="slider-count" min="1" max="5" step="1" value="2"
+                oninput="document.getElementById('val-count').textContent=this.value">
+            </div>
+          </div>
+
           <!-- ═══ AI Prompt (visible when Use AI checked) ═══ -->
           <div id="params-prompt" class="d-none w-100 mt-2">
             <div class="d-flex gap-3 w-100">

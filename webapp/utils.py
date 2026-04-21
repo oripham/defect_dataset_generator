@@ -5,9 +5,7 @@ import time
 from pathlib import Path
 from flask import g, request
 from werkzeug.local import LocalProxy
-
 from gui.i18n import TRANSLATIONS
-from gui.app_state import AppState
 
 state = LocalProxy(lambda: getattr(g, 'state', None))
 

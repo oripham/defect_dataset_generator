@@ -114,25 +114,6 @@ def _make_debug_panel(ok_bgr, mask_gray, result_bgr, panel_h=240) -> np.ndarray:
     return np.hstack(panels)
 
 
-# ── API: products list ─────────────────────────────────────────────────────────
-
-@pharma_bp.get("/api/pharma/products")
-def api_products():
-    out = {}
-    for pk, pv in PRODUCTS.items():
-        defects = {}
-        for dk, dv in pv.get("defects", {}).items():
-            ok_dir = pv.get("data_dir", Path()) / dv.get("dir", "") / "ok"
-            n_ok = len(list(ok_dir.glob("*.png")) + list(ok_dir.glob("*.jpg"))) if ok_dir.exists() else 0
-            defects[dk] = {**dv, "n_ok": n_ok}
-        out[pk] = {
-            "display": pv["display"],
-            "locked":  pv.get("locked", False),
-            "defects": defects,
-        }
-    return jsonify(out)
-
-
 # ── API: auto-mask ─────────────────────────────────────────────────────────────
 
 @pharma_bp.post("/api/pharma/auto-mask")

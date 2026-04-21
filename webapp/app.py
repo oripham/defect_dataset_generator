@@ -22,7 +22,6 @@ class _SilencePolling(logging.Filter):
         return not any(p in msg for p in self._SKIP)
 
 logging.getLogger("werkzeug").addFilter(_SilencePolling())
-
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from gui.app_state import AppState
@@ -98,7 +97,7 @@ app.register_blueprint(eval_bp)
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print('===================================================')
-    print(' 欠陥データセットジェネレーター Web UI (Modular)')
+    print(' Defect Dataset Generator Web UI (Modular)')
     print(f' Port: {port}')
     print('===================================================')
     app.run(host='0.0.0.0', port=port, debug=False, threaded=True)

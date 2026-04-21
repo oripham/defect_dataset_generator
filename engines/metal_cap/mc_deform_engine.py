@@ -39,11 +39,7 @@ POLAR_W = 512
 
 # ── SDXL config (pipeline_mc cell-15 / cell-16) ───────────────────────────────
 _TARGET  = (768, 768)
-_PROMPT  = (
-    "irregular industrial metal defect, crushed rim, jagged metallic edges, "
-    "deep dent, heavy specular reflections, polished chrome, photorealistic, "
-    "high contrast, non-geometric damage"
-)
+_PROMPT  = "irregular industrial metal defect, crushed rim, jagged metallic edges, deep dent, heavy specular reflections, polished chrome, photorealistic, high contrast, non-geometric damage"
 _NEG     = "smooth, perfect circle, plastic, matte, flat, low quality, sphere"
 _STRENGTH  = 0.98
 _GUIDANCE  = 12.0
