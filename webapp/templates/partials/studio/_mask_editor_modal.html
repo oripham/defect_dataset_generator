@@ -1,0 +1,394 @@
+<!-- Mask Editor Modal — Roboflow-style zoom + pan + draw -->
+<div id="mask-editor-modal" class="position-fixed top-0 start-0 w-100 h-100 d-none"
+     style="z-index:9999;background:rgba(0,0,0,0.92)">
+
+  <!-- Top toolbar -->
+  <div class="d-flex align-items-center gap-2 px-3 py-2"
+       style="background:#161b22;border-bottom:1px solid #30363d">
+    <span class="fw-bold text-info">Draw Defect Mask / 欠陥マスク描画</span>
+    <span class="text-muted small ms-2">Scroll=Zoom, Right-drag=Pan, Left-click=Draw / スクロール=ズーム, 右ドラッグ=パン, 左クリック=描画</span>
+    <span class="ms-auto"></span>
+
+    <!-- Tool buttons -->
+    <button id="me-btn-brush" class="btn btn-sm btn-info px-2 py-0" onclick="_meSetTool('brush')"
+            style="font-size:12px">Brush / ブラシ</button>
+    <button id="me-btn-eraser" class="btn btn-sm btn-outline-secondary px-2 py-0" onclick="_meSetTool('eraser')"
+            style="font-size:12px">Eraser / 消しゴム</button>
+    <span class="text-muted small">Size / サイズ:</span>
+    <input type="range" id="me-brush-size" min="3" max="80" value="18" style="width:90px"
+           oninput="_meBrushSz=parseInt(this.value);document.getElementById('me-brush-lbl').textContent=this.value">
+    <span id="me-brush-lbl" class="small text-info" style="min-width:20px">18</span>
+
+    <span class="text-muted mx-1">|</span>
+    <span id="me-zoom-lbl" class="small text-warning" style="min-width:40px">1.0x</span>
+    <button class="btn btn-sm btn-outline-secondary px-1 py-0" onclick="_meZoomTo(1)"
+            style="font-size:11px">Fit / 全体</button>
+
+    <span class="text-muted mx-1">|</span>
+    <button class="btn btn-sm btn-outline-danger px-2 py-0" onclick="_meClear()"
+            style="font-size:12px">Clear / クリア</button>
+    <button class="btn btn-sm btn-success px-3 py-0 fw-bold" onclick="_meConfirm()"
+            style="font-size:12px">Set / 確定</button>
+    <button class="btn btn-sm btn-outline-secondary px-2 py-0" onclick="_meClose()"
+            style="font-size:12px">Cancel / 取消</button>
+  </div>
+
+  <!-- Canvas area -->
+  <div id="me-canvas-wrap" class="position-relative" style="width:100%;height:calc(100% - 44px);overflow:hidden">
+    <canvas id="me-canvas" style="position:absolute;top:0;left:0;cursor:crosshair"></canvas>
+  </div>
+</div>
+
+<script>
+(function() {
+  // ── State ──
+  let _meImg = null;       // HTMLImageElement (OK image)
+  let _meMask = null;      // offscreen canvas at original image resolution
+  let _meZoom = 1;
+  let _meViewX = 0;        // top-left in image coords
+  let _meViewY = 0;
+  let _meBrushSz = 18;
+  let _meTool = 'brush';   // 'brush' | 'eraser'
+  let _meDrawing = false;
+  let _mePanning = false;
+  let _meLastPan = null;
+  let _meW = 0, _meH = 0;  // canvas element size
+  let _meImgW = 0, _meImgH = 0;
+  let _meCursorPos = null;  // [screenX, screenY] for brush cursor
+
+  // ── Open / Close ──
+  window._meOpen = function() {
+    if (!window.okImageB64) { alert("Upload an OK image first.\nOK品画像をアップロードしてください。"); return; }
+    const modal = document.getElementById("mask-editor-modal");
+    // Move modal to body to escape overflow:auto clipping on <main>
+    document.body.appendChild(modal);
+    modal.classList.remove("d-none");
+
+    const img = new Image();
+    img.onerror = () => { console.error("Mask editor: failed to load OK image"); alert("Failed to load image\n画像の読み込みに失敗しました"); };
+    img.onload = () => {
+      _meImg = img;
+      _meImgW = img.width;
+      _meImgH = img.height;
+      console.log("[MaskEditor] Image loaded:", _meImgW, "x", _meImgH);
+
+      // Create mask canvas at original resolution (or reuse existing)
+      if (!_meMask || _meMask.width !== _meImgW || _meMask.height !== _meImgH) {
+        _meMask = document.createElement("canvas");
+        _meMask.width = _meImgW;
+        _meMask.height = _meImgH;
+      }
+
+      _meZoom = 1;
+      _meViewX = 0;
+      _meViewY = 0;
+      _meSetTool('brush');
+
+      // Delay resize slightly to ensure modal layout is computed
+      requestAnimationFrame(() => {
+        _meResize();
+        _meRender();
+        _meBindEvents();
+        console.log("[MaskEditor] Canvas:", _meW, "x", _meH);
+      });
+    };
+    // Use generic data URL (works for both JPEG and PNG)
+    const b64 = window.okImageB64;
+    const header = b64.substring(0, 4);
+    const mime = (header === '/9j/' || header === '/9j+') ? 'image/jpeg' : 'image/png';
+    img.src = "data:" + mime + ";base64," + b64;
+  };
+
+  window._meClose = function() {
+    document.getElementById("mask-editor-modal").classList.add("d-none");
+    _meUnbindEvents();
+  };
+
+  // ── Resize canvas to fill container ──
+  function _meResize() {
+    const wrap = document.getElementById("me-canvas-wrap");
+    const cv = document.getElementById("me-canvas");
+    _meW = wrap.clientWidth;
+    _meH = wrap.clientHeight;
+    cv.width = _meW;
+    cv.height = _meH;
+    _meClampView();
+  }
+
+  function _meGetTransform() {
+    // How many image pixels are visible
+    const viewW = _meImgW / _meZoom;
+    const viewH = _meImgH / _meZoom;
+    // Scale to fit canvas while preserving aspect ratio
+    const scaleX = _meW / viewW;
+    const scaleY = _meH / viewH;
+    const scale = Math.min(scaleX, scaleY);
+    const drawW = viewW * scale;
+    const drawH = viewH * scale;
+    const offX = (_meW - drawW) / 2;
+    const offY = (_meH - drawH) / 2;
+    return { scale, drawW, drawH, offX, offY, viewW, viewH };
+  }
+
+  function _meS2I(sx, sy) {
+    const t = _meGetTransform();
+    const ix = _meViewX + (sx - t.offX) / t.scale;
+    const iy = _meViewY + (sy - t.offY) / t.scale;
+    return [ix, iy];
+  }
+
+  // ── Clamp view so it doesn't go out of bounds ──
+  function _meClampView() {
+    const viewW = _meImgW / _meZoom;
+    const viewH = _meImgH / _meZoom;
+    _meViewX = Math.max(0, Math.min(_meImgW - viewW, _meViewX));
+    _meViewY = Math.max(0, Math.min(_meImgH - viewH, _meViewY));
+  }
+
+  // ── Render ──
+  function _meRender() {
+    const cv = document.getElementById("me-canvas");
+    const ctx = cv.getContext("2d");
+    ctx.fillStyle = "#0d1117";
+    ctx.fillRect(0, 0, _meW, _meH);
+
+    if (!_meImg) return;
+
+    const t = _meGetTransform();
+    // Draw OK image (source rect from image, dest rect on canvas)
+    ctx.drawImage(_meImg,
+      _meViewX, _meViewY, t.viewW, t.viewH,
+      t.offX, t.offY, t.drawW, t.drawH);
+
+    // Draw mask overlay with transparency
+    if (_meMask) {
+      ctx.globalAlpha = 0.45;
+      ctx.drawImage(_meMask,
+        _meViewX, _meViewY, t.viewW, t.viewH,
+        t.offX, t.offY, t.drawW, t.drawH);
+      ctx.globalAlpha = 1;
+    }
+
+    // Zoom label
+    document.getElementById("me-zoom-lbl").textContent = _meZoom.toFixed(1) + "x";
+
+    // Brush cursor hint
+    if (_meCursorPos) {
+      const bx = _meCursorPos[0], by = _meCursorPos[1];
+      ctx.strokeStyle = _meTool === 'eraser' ? '#ff4444' : '#00ff88';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(bx, by, _meBrushSz / 2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  // ── Drawing ──
+  function _mePaint(sx, sy) {
+    if (!_meMask) return;
+    const [ix, iy] = _meS2I(sx, sy);
+    if (ix < 0 || iy < 0 || ix >= _meImgW || iy >= _meImgH) return;
+    const mCtx = _meMask.getContext("2d");
+    const r = _meBrushSz / _meZoom;  // brush size in image pixels
+
+    if (_meTool === 'eraser') {
+      mCtx.globalCompositeOperation = "destination-out";
+      mCtx.fillStyle = "rgba(0,0,0,1)";
+    } else {
+      mCtx.globalCompositeOperation = "source-over";
+      mCtx.fillStyle = "#ff6400";
+    }
+    mCtx.beginPath();
+    mCtx.arc(ix, iy, r / 2, 0, Math.PI * 2);
+    mCtx.fill();
+    mCtx.globalCompositeOperation = "source-over";
+  }
+
+  // ── Zoom ──
+  window._meZoomTo = function(z) {
+    // Zoom centered on canvas center
+    const cx = _meW / 2;
+    const cy = _meH / 2;
+    const [ix, iy] = _meS2I(cx, cy);
+    _meZoom = Math.max(0.5, Math.min(20, z));
+    // Recenter on the same image point
+    _meViewX = ix - (_meImgW / _meZoom) / 2;
+    _meViewY = iy - (_meImgH / _meZoom) / 2;
+    _meClampView();
+    _meRender();
+  };
+
+  function _meZoomAt(sx, sy, delta) {
+    const [ix, iy] = _meS2I(sx, sy);
+    const factor = delta > 0 ? 1.18 : 0.85;
+    _meZoom = Math.max(0.5, Math.min(20, _meZoom / factor));
+    // Keep image point under cursor
+    const t = _meGetTransform();
+    _meViewX = ix - (sx - t.offX) / t.scale;
+    _meViewY = iy - (sy - t.offY) / t.scale;
+    _meClampView();
+    _meRender();
+  }
+
+  // ── Tool ──
+  window._meSetTool = function(tool) {
+    _meTool = tool;
+    const cv = document.getElementById("me-canvas");
+    cv.style.cursor = tool === 'eraser' ? 'not-allowed' : 'crosshair';
+    document.getElementById("me-btn-brush").className =
+      "btn btn-sm px-2 py-0 " + (tool === 'brush' ? "btn-info" : "btn-outline-secondary");
+    document.getElementById("me-btn-eraser").className =
+      "btn btn-sm px-2 py-0 " + (tool === 'eraser' ? "btn-danger" : "btn-outline-secondary");
+  };
+
+  // ── Clear / Confirm ──
+  window._meClear = function() {
+    if (!_meMask) return;
+    _meMask.getContext("2d").clearRect(0, 0, _meMask.width, _meMask.height);
+    _meRender();
+  };
+
+  window._meConfirm = function() {
+    if (!_meMask || !_meImg) return;
+    // Convert mask to B&W PNG base64 at original resolution
+    const outCv = document.createElement("canvas");
+    outCv.width = _meImgW;
+    outCv.height = _meImgH;
+    const outCtx = outCv.getContext("2d");
+    outCtx.drawImage(_meMask, 0, 0);
+    const id = outCtx.getImageData(0, 0, outCv.width, outCv.height);
+    const d = id.data;
+    let hasMask = false;
+    for (let i = 0; i < d.length; i += 4) {
+      const v = d[i] > 50 ? 255 : 0;
+      if (v) hasMask = true;
+      d[i] = d[i + 1] = d[i + 2] = v;
+      d[i + 3] = 255;
+    }
+    if (!hasMask) { alert("Draw a mask region first.\nマスク領域を描画してください。"); return; }
+    outCtx.putImageData(id, 0, 0);
+    window.maskB64 = outCv.toDataURL("image/png").split(",")[1];
+    window.showPanel("panel-mask", window.maskB64);
+
+    // Update hint in sidebar
+    const panel = document.getElementById("mc-mask-panel");
+    if (panel) panel.classList.remove("d-none");
+    const hintEl = document.getElementById("mc-mask-hint");
+    if (hintEl) hintEl.innerHTML = '<span class="text-success fw-bold">MASK LOCKED / マスク確定</span>';
+    const selTheta = document.getElementById("sel-theta");
+    if (selTheta) {
+      if (!Array.from(selTheta.options).some(o => o.value === "mask_locked")) {
+        selTheta.add(new Option("Locked to Mask / マスクに固定", "mask_locked"));
+      }
+      selTheta.value = "mask_locked";
+    }
+
+    if (window.log) window.log("Mask confirmed from editor. / マスクがエディタから確定されました。");
+    _meClose();
+  };
+
+  // ── Event handlers ──
+  let _meBound = false;
+  function _meBindEvents() {
+    if (_meBound) return;
+    _meBound = true;
+    const cv = document.getElementById("me-canvas");
+
+    cv.addEventListener("mousedown", _meOnDown);
+    cv.addEventListener("mousemove", _meOnMove);
+    cv.addEventListener("mouseup", _meOnUp);
+    cv.addEventListener("mouseleave", _meOnLeave);
+    cv.addEventListener("wheel", _meOnWheel, { passive: false });
+    cv.addEventListener("contextmenu", e => e.preventDefault());
+    window.addEventListener("resize", _meOnResize);
+    window.addEventListener("keydown", _meOnKey);
+    window.addEventListener("keyup", _meOnKeyUp);
+  }
+
+  function _meUnbindEvents() {
+    _meBound = false;
+    const cv = document.getElementById("me-canvas");
+    cv.removeEventListener("mousedown", _meOnDown);
+    cv.removeEventListener("mousemove", _meOnMove);
+    cv.removeEventListener("mouseup", _meOnUp);
+    cv.removeEventListener("mouseleave", _meOnUp);
+    cv.removeEventListener("wheel", _meOnWheel);
+    window.removeEventListener("resize", _meOnResize);
+    window.removeEventListener("keydown", _meOnKey);
+    window.removeEventListener("keyup", _meOnKeyUp);
+  }
+
+  let _meSpaceHeld = false;
+
+  function _meOnKey(e) {
+    if (e.code === "Space") { _meSpaceHeld = true; e.preventDefault(); }
+    if (e.code === "Escape") _meClose();
+  }
+  function _meOnKeyUp(e) {
+    if (e.code === "Space") _meSpaceHeld = false;
+  }
+
+  function _meOnDown(e) {
+    e.preventDefault();
+    const r = e.target.getBoundingClientRect();
+    const sx = e.clientX - r.left;
+    const sy = e.clientY - r.top;
+
+    if (e.button === 2 || e.button === 1 || _meSpaceHeld) {
+      // Right-click or middle-click or space = pan
+      _mePanning = true;
+      _meLastPan = [e.clientX, e.clientY];
+    } else if (e.button === 0) {
+      _meDrawing = true;
+      _mePaint(sx, sy);
+      _meRender();
+    }
+  }
+
+  function _meOnMove(e) {
+    const r = e.target.getBoundingClientRect();
+    const sx = e.clientX - r.left;
+    const sy = e.clientY - r.top;
+    _meCursorPos = [sx, sy];
+
+    if (_mePanning && _meLastPan) {
+      const t = _meGetTransform();
+      const dx = (e.clientX - _meLastPan[0]) / t.scale;
+      const dy = (e.clientY - _meLastPan[1]) / t.scale;
+      _meViewX -= dx;
+      _meViewY -= dy;
+      _meLastPan = [e.clientX, e.clientY];
+      _meClampView();
+    } else if (_meDrawing) {
+      _mePaint(sx, sy);
+    }
+    _meRender();
+  }
+
+  function _meOnUp(e) {
+    _meDrawing = false;
+    _mePanning = false;
+    _meLastPan = null;
+  }
+
+  function _meOnLeave(e) {
+    _meOnUp(e);
+    _meCursorPos = null;
+    _meRender();
+  }
+
+  function _meOnWheel(e) {
+    e.preventDefault();
+    const r = e.target.getBoundingClientRect();
+    const sx = e.clientX - r.left;
+    const sy = e.clientY - r.top;
+    _meZoomAt(sx, sy, e.deltaY);
+  }
+
+  function _meOnResize() {
+    _meResize();
+    _meRender();
+  }
+
+})();
+</script>
