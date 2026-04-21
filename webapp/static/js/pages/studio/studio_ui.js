@@ -371,6 +371,7 @@ function buildParams() {
     if (currentGroup === "metal_cap") {
       p.severity = document.getElementById("sel-severity").value;
       p.count = parseInt(document.getElementById("slider-count").value);
+      p.use_flux = document.getElementById("chk-use-flux")?.checked || false;
     } else {
       p.mode = document.getElementById("sel-mode").value;
     }

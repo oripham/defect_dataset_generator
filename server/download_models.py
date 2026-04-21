@@ -9,8 +9,9 @@ Models & verified snapshot IDs (as of 2026-03-28):
   - diffusers/controlnet-depth-sdxl-1.0                17bb97973f29801224cd66f192c5ffacf82648b4  (4.7 GB)
   - h94/IP-Adapter  (sdxl_models + image_encoder)      018e402774aeeddd60609b4ecdb7e298259dc729  (3.3 GB)
   - Intel/dpt-large                                     bc15f29aa3a80d532f2ed650b5e16ac48d8958f9  (1.3 GB)
+  - black-forest-labs/FLUX.1-dev                        main (gated)                             (~35.0 GB)
 
-Total: ~29 GB — estimated download time 30-60 min on RunPod.
+Total: ~65 GB — estimated download time 60-90 min on RunPod.
 
 Cache location: $HF_HOME/hub (set HF_HOME=/workspace/models on RunPod)
 """
@@ -97,8 +98,17 @@ dl(
 )
 
 # 4. Intel DPT-Large (depth estimator)
-print("\n[4/4] Intel DPT-Large depth estimator (~1.3 GB)")
+print("\n[4/5] Intel DPT-Large depth estimator (~1.3 GB)")
 dl("Intel/dpt-large")
+
+# 5. FLUX.1-dev
+print("\n[5/5] FLUX.1-dev (~35.0 GB)")
+print("Note: Requires HF_TOKEN environment variable for gated access.")
+dl(
+    "black-forest-labs/FLUX.1-dev", 
+    revision="main",
+    ignore_patterns=["*.msgpack", "flax_model*", "*.ot", "rust_model*", "*.tfevents*"]
+)
 
 print("\n" + "=" * 60)
 print("✅ All downloads complete!")

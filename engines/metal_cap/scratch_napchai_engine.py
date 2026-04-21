@@ -38,7 +38,7 @@ import numpy as np
 from PIL import Image as _PIL
 
 from ..utils import encode_b64, decode_b64
-from ..models._napchai_models import get_pipe, get_depth_est, get_lock
+from ..models._napchai_models import get_pipe, get_depth_est, get_flux_pipe, get_lock
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 POLAR_H = 720
@@ -54,6 +54,15 @@ _NEG      = "paint, drawing, plastic, blur, soft edges, uniform texture, artific
 _STRENGTH = 0.45
 _GUIDANCE = 8.0
 _STEPS    = 35
+
+# ── FLUX Constants ────────────────────────────────────────────────────────────
+_FLUX_PROMPT = (
+    "photorealistic industrial metal scratch, high-fidelity steel surface, "
+    "microscopic metallic burrs, deep jagged gouge, realistic raytraced reflections, "
+    "industrial 8k inspection photo, extremely sharp detail, raw cold steel"
+)
+_FLUX_STEPS = 20
+_FLUX_GUIDANCE = 3.5
 
 # ── Severity presets ───────────────────────────────────────────────────────────
 # Mỗi preset định nghĩa: (shadow_strength, ridge_strength, width_range, length_range, companion_prob)
@@ -457,6 +466,53 @@ def _sdxl_step(cv_res_rgb, mask_gray, ref_rgb, seed, prompt=None, negative_promp
     return np.array(final.convert("RGB"))
 
 
+# ── FLUX refine step ──────────────────────────────────────────────────────────
+
+def _flux_step(cv_res_rgb, mask_gray, seed, prompt=None):
+    """
+    Refines the CV result using FLUX.1-dev.
+    Since FLUX ControlNet ecosystem is different from SDXL, we use 
+    FluxInpaintPipeline for high-fidelity texture synthesis.
+    """
+    import torch
+    import gc
+
+    orig_hw = (cv_res_rgb.shape[1], cv_res_rgb.shape[0])
+
+    with get_lock():
+        pipe = get_flux_pipe()
+        if pipe is None:
+            print("[scratch_napchai] FLUX pipe not available (likely version error)")
+            return cv_res_rgb
+
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        cv_pil   = _PIL.fromarray(cv_res_rgb).resize(_TARGET)
+        mask_pil = _PIL.fromarray(mask_gray).resize(_TARGET)
+
+        with torch.inference_mode():
+            # FLUX.1-dev inpainting / img2img
+            # Note: pipe(image=..., mask_image=...) handles the inpainting
+            ai_res_low = pipe(
+                prompt=prompt or _FLUX_PROMPT,
+                image=cv_pil,
+                mask_image=mask_pil,
+                width=_TARGET[0],
+                height=_TARGET[1],
+                num_inference_steps=_FLUX_STEPS,
+                guidance_scale=_FLUX_GUIDANCE,
+                generator=torch.manual_seed(seed),
+            ).images[0]
+
+        final = ai_res_low.resize(orig_hw, _PIL.LANCZOS)
+
+        torch.cuda.empty_cache()
+        gc.collect()
+
+    return np.array(final.convert("RGB"))
+
+
 # ── Public generate() ─────────────────────────────────────────────────────────
 
 def generate(base_image_b64: str, params: dict, mask_b64: str | None = None) -> dict:
@@ -486,10 +542,21 @@ def generate(base_image_b64: str, params: dict, mask_b64: str | None = None) -> 
     mask_b64_out = _b64.b64encode(mbuf).decode()
 
     do_refine = params.get("sdxl_refine", False)
+    use_flux  = params.get("use_flux", False)
     seed      = int(params.get("seed", 42))
     ref_b64   = params.get("ref_image_b64")
 
-    if do_refine:
+    if use_flux:
+        try:
+            print(f"[scratch_napchai] Using FLUX.1-dev refinement (seed={seed})")
+            final_rgb  = _flux_step(cv_res, mask_res, seed, prompt=params.get("prompt"))
+            result_b64 = encode_b64(final_rgb)
+            engine     = "cv+flux"
+        except Exception as e:
+            print(f"[scratch_napchai] FLUX failed: {e} — returning CV result")
+            result_b64 = encode_b64(cv_res)
+            engine     = "cv"
+    elif do_refine:
         ref_rgb = decode_b64(ref_b64) if ref_b64 else None
         try:
             final_rgb  = _sdxl_step(cv_res, mask_res, ref_rgb, seed,
