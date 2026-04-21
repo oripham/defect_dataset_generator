@@ -3,8 +3,8 @@
      background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center;">
   <div class="bg-dark border border-secondary rounded p-4 text-light" style="width:420px;max-width:95vw">
     <div class="d-flex justify-content-between align-items-center mb-3">
-      <h6 class="text-warning mb-0">⚡ Batch Generate / バッチ生成</h6>
-      <button class="btn btn-sm btn-outline-secondary" onclick="closeBatchModal()">✕</button>
+      <h6 class="text-warning mb-0">Batch Generate / バッチ生成</h6>
+      <button class="btn btn-sm btn-outline-secondary" onclick="closeBatchModal()">X</button>
     </div>
 
     <div class="mb-3">
@@ -20,15 +20,29 @@
       <div class="d-flex flex-wrap gap-2">
         <div class="form-check"><input class="form-check-input" type="checkbox" id="bc-straight" value="straight"
             checked>
-          <label class="form-check-label small" for="bc-straight">Straight</label>
+          <label class="form-check-label small" for="bc-straight">Straight / 直線</label>
         </div>
         <div class="form-check"><input class="form-check-input" type="checkbox" id="bc-corner" value="corner" checked>
-          <label class="form-check-label small" for="bc-corner">Corner</label>
+          <label class="form-check-label small" for="bc-corner">Corner / 角欠け</label>
         </div>
         <div class="form-check"><input class="form-check-input" type="checkbox" id="bc-curved" value="curved" checked>
-          <label class="form-check-label small" for="bc-curved">Curved</label>
+          <label class="form-check-label small" for="bc-curved">Curved / 曲線</label>
         </div>
         <div class="form-check"><input class="form-check-input" type="checkbox" id="bc-concave" value="concave" checked>
-          <label class="form-check-label small" for="bc-concave">Concave</label>
+          <label class="form-check-label small" for="bc-concave">Concave / 凹面</label>
         </div>
       </div>
+    </div>
+
+    <div id="batch-progress-wrap" style="display:none" class="mb-3">
+      <div class="progress" style="height:20px">
+        <div id="batch-bar" class="progress-bar bg-warning" role="progressbar" style="width:0%"></div>
+      </div>
+      <div id="batch-status-text" class="small text-muted mt-1"></div>
+    </div>
+
+    <button id="btn-batch-start" class="btn btn-warning w-100 fw-bold" onclick="startBatch()">
+      Start Batch / バッチ開始
+    </button>
+  </div>
+</div>

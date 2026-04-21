@@ -116,3 +116,10 @@ desktop.ini
 test_integration.py
 test_router.py
 test_scenario.py
+
+# ── Docs, batch scripts, experiment scripts ─────────────────
+*.md
+*.bat
+*.ps1
+scripts/draw_mask_tool.py
+scripts/small_scratch_experiment.py

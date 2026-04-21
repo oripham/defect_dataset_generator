@@ -538,142 +538,113 @@ def synth_scratch_lines(ok, mask, seed=0):
     return np.clip(out, 0, 255).astype(np.uint8)
 
 
-def synth_plastic_scuff(ok, mask, seed=0, alpha_mult=1.35, whiten_add=120, mode="auto"):
+def synth_plastic_scuff(ok, mask, seed=0, alpha_mult=1.35, whiten_add=120, mode="auto", size=1.0):
     """
-    Plastic scuff: soft whitening streaks (less dark groove, softer edges).
-    Produces 1–3 thin strokes, then blurs to look matte.
+    Realistic plastic scratch: localized rough/matte patch with fine hairline
+    scratches. Mimics real NG where surface reflections are disrupted.
     """
     rng2 = np.random.default_rng(seed)
     out  = ok.copy().astype(np.float32)
     H, W = ok.shape[:2]
     x0, y0, x1, y1 = mask_bbox(mask)
-    span = max(x1 - x0, y1 - y0, 40)
+    bw, bh = max(x1 - x0, 10), max(y1 - y0, 10)
 
-    layer = np.zeros((H, W), dtype=np.float32)
-    n_sc  = int(rng2.integers(2, 6))
+    # ── 1. Pick ONE localized damage spot inside mask ──
+    ys, xs = np.where(mask > 127)
+    if len(xs) == 0:
+        return np.clip(out, 0, 255).astype(np.uint8)
+    idx = int(rng2.integers(0, len(xs)))
+    spot_x, spot_y = int(xs[idx]), int(ys[idx])
 
-    # Pick a scuff style (feature diversity)
-    if mode == "auto":
-        mode = ["whiten_streak", "micro_haze", "gouge_whiten", "parallel_micro", "crosshatch"][int(rng2.integers(0, 5))]
+    patch_r = int(rng2.integers(max(20, min(bw, bh) // 4), max(21, min(bw, bh) // 2)))
+    patch_r = max(5, int(patch_r * float(size)))
 
-    def _draw_parallel_bundle(layer_img, angle, count, spacing_px, length_rng, thick=1):
-        """Draw a bundle of near-parallel micro scratches."""
-        ca, sa = np.cos(angle), np.sin(angle)
-        # perpendicular direction for offsets
-        px, py = -sa, ca
-        for i in range(count):
-            # center point in mask bbox
-            cx = int(rng2.integers(x0, max(x0 + 1, x1)))
-            cy = int(rng2.integers(y0, max(y0 + 1, y1)))
-            # offset line by i*spacing with jitter
-            off = (i - (count - 1) / 2.0) * spacing_px + float(rng2.uniform(-0.6, 0.6) * spacing_px)
-            cx2 = int(np.clip(cx + px * off, 0, W - 1))
-            cy2 = int(np.clip(cy + py * off, 0, H - 1))
-            length = int(rng2.integers(length_rng[0], length_rng[1]))
-            # Make it less "perfect": slight curvature + broken segments + varying intensity
-            n_pts = int(rng2.integers(6, 10))
-            t = np.linspace(-1.0, 1.0, n_pts).astype(np.float32)
-            # perpendicular wobble
-            amp = spacing_px * float(rng2.uniform(0.20, 0.85))
-            freq = float(rng2.uniform(0.8, 1.6))
-            phase = float(rng2.uniform(0, 2 * np.pi))
-            wob = (np.sin((t + 1) * np.pi * freq + phase) * amp).astype(np.float32)
+    # ── 2. Patch alpha: hard-edged ellipse with irregular boundary ──
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    stretch_x = float(rng2.uniform(0.7, 1.3))
+    stretch_y = float(rng2.uniform(0.7, 1.3))
+    angle_rot = float(rng2.uniform(0, np.pi))
+    dx = xx - spot_x
+    dy = yy - spot_y
+    rx = dx * np.cos(angle_rot) + dy * np.sin(angle_rot)
+    ry = -dx * np.sin(angle_rot) + dy * np.cos(angle_rot)
+    dist = np.sqrt((rx * stretch_x) ** 2 + (ry * stretch_y) ** 2)
+    # Hard-ish falloff: mostly 1.0 inside, sharp drop at edge
+    patch_alpha = np.clip(1.0 - (dist / patch_r) ** 3, 0, 1)
 
-            ax = (cx2 + ca * length * t).astype(np.float32)
-            ay = (cy2 + sa * length * t).astype(np.float32)
-            bx = np.clip(ax + px * wob, 0, W - 1).astype(np.int32)
-            by = np.clip(ay + py * wob, 0, H - 1).astype(np.int32)
+    # Irregular boundary
+    bn = cv2.GaussianBlur(rng2.normal(0, 1, (H, W)).astype(np.float32),
+                          (0, 0), max(3, patch_r * 0.3))
+    bn = (bn - bn.min()) / (bn.max() - bn.min() + 1e-6)
+    patch_alpha = patch_alpha * np.clip(bn * 1.5 + 0.3, 0, 1)
 
-            drop_p = float(rng2.uniform(0.10, 0.35))
-            base_i = float(rng2.uniform(0.55, 1.0))
-            for j in range(n_pts - 1):
-                if float(rng2.random()) < drop_p:
-                    continue
-                p0 = (int(bx[j]), int(by[j]))
-                p1 = (int(bx[j + 1]), int(by[j + 1]))
-                inten = float(np.clip(base_i * rng2.uniform(0.85, 1.10), 0.35, 1.0))
-                cv2.line(layer_img, p0, p1, inten, thick, cv2.LINE_AA)
+    # Soft edge blend (just 2px)
+    patch_alpha = cv2.GaussianBlur(patch_alpha, (5, 5), 1.0)
+    mask_f = mask.astype(np.float32) / 255.0
+    patch_alpha = np.clip(patch_alpha * mask_f, 0, 1)
 
-    for _ in range(n_sc):
-        sx = int(rng2.integers(x0, max(x0 + 1, x1)))
-        sy = int(rng2.integers(y0, max(y0 + 1, y1)))
-        n_segs = int(rng2.integers(2, 5))
-        thick  = 1 if mode != "micro_haze" else int(rng2.integers(2, 4))
-        cx, cy = sx, sy
-        for _ in range(n_segs):
-            angle  = float(rng2.uniform(0, 2 * np.pi))
-            length = int(rng2.integers(max(22, span // 4), max(23, span)))
-            ex = int(np.clip(cx + np.cos(angle) * length, 0, W - 1))
-            ey = int(np.clip(cy + np.sin(angle) * length, 0, H - 1))
-            cv2.line(layer, (cx, cy), (ex, ey), 1.0, thick, cv2.LINE_AA)
-            cx, cy = ex, ey
-
-    # Additional feature modes
-    if mode == "parallel_micro":
-        # Many thin, near-parallel hairlines
-        base_ang = float(rng2.uniform(0, np.pi))
-        count = int(rng2.integers(6, 16))
-        spacing = float(rng2.uniform(2.0, 5.0))
-        length_rng = (max(25, span // 3), max(26, span))
-        _draw_parallel_bundle(layer, base_ang, count=count, spacing_px=spacing, length_rng=length_rng, thick=1)
-        # add a second faint bundle with slight angle change
-        if rng2.random() < 0.55:
-            _draw_parallel_bundle(layer, base_ang + float(rng2.uniform(-0.25, 0.25)),
-                                  count=int(rng2.integers(4, 10)),
-                                  spacing_px=float(rng2.uniform(2.5, 6.0)),
-                                  length_rng=(max(18, span // 4), max(19, span // 2)),
-                                  thick=1)
-
-    elif mode == "crosshatch":
-        # Two bundles crossing each other (common on plastic scuff)
-        a0 = float(rng2.uniform(0, np.pi))
-        a1 = a0 + float(rng2.uniform(0.6, 1.2))
-        count0 = int(rng2.integers(6, 14))
-        count1 = int(rng2.integers(5, 12))
-        spacing0 = float(rng2.uniform(2.0, 5.0))
-        spacing1 = float(rng2.uniform(2.0, 5.5))
-        length_rng0 = (max(22, span // 3), max(23, span))
-        length_rng1 = (max(18, span // 4), max(19, span // 2))
-        _draw_parallel_bundle(layer, a0, count=count0, spacing_px=spacing0, length_rng=length_rng0, thick=1)
-        _draw_parallel_bundle(layer, a1, count=count1, spacing_px=spacing1, length_rng=length_rng1, thick=1)
-
-    # Soft edges + matte appearance
-    if mode == "whiten_streak":
-        layer = cv2.GaussianBlur(layer, (0, 0), 1.7)
-    elif mode == "micro_haze":
-        layer = cv2.GaussianBlur(layer, (0, 0), 3.3)
-    elif mode in ("parallel_micro", "crosshatch"):
-        # keep thin but not razor sharp
-        layer = cv2.GaussianBlur(layer, (0, 0), 1.35)
-    else:  # gouge_whiten
-        layer = cv2.GaussianBlur(layer, (0, 0), 1.2)
-    layer = np.clip(layer, 0, 1)
-    alpha = cv2.GaussianBlur(mask.astype(np.float32) / 255.0, (13, 13), 3.8)
-    a = np.clip(alpha * layer * float(np.clip(alpha_mult, 0.5, 3.0)), 0, 1)
-
-    # Whitening: lift toward local bright, avoid harsh contrast
-    gray = out.mean(axis=2)
-    # Micro-haze is more subtle but wider; gouge has stronger local whitening
-    if mode == "micro_haze":
-        target = np.clip(gray + float(whiten_add) * 0.75, 0, 252)
-    elif mode == "gouge_whiten":
-        target = np.clip(gray + float(whiten_add) * 1.05, 0, 255)
-    elif mode in ("parallel_micro", "crosshatch"):
-        # micro scratches: less whitening but more edge density
-        target = np.clip(gray + float(whiten_add) * 0.85, 0, 252)
-    else:
-        target = np.clip(gray + float(whiten_add), 0, 255)
-
-    # Optional shallow groove for gouge (plastic can show slight dark edge)
-    if mode == "gouge_whiten":
-        edge = cv2.Laplacian(layer, cv2.CV_32F, ksize=3)
-        edge = np.clip(edge, 0, 1)
-        groove = cv2.GaussianBlur(edge, (0, 0), 0.9) * (a * 0.6)
-        for c in range(3):
-            out[:, :, c] = out[:, :, c] - groove * 35.0
-
+    # ── 3. Subtle specular reduction (small blur, low blend — preserve detail) ──
+    compress = float(rng2.uniform(0.25, 0.40))
     for c in range(3):
-        out[:, :, c] = out[:, :, c] * (1 - a) + target * a
+        channel_mean = cv2.GaussianBlur(out[:, :, c], (0, 0), 1.8)
+        out[:, :, c] = out[:, :, c] * (1 - patch_alpha * compress) + \
+                       channel_mean * (patch_alpha * compress)
+
+    # ── 4. Very subtle texture (barely visible roughness) ──
+    noise_coarse = rng2.normal(0, 1, (H, W)).astype(np.float32)
+    noise_coarse = cv2.GaussianBlur(noise_coarse, (0, 0), 5.0)
+    noise_coarse = (noise_coarse - noise_coarse.mean()) / (noise_coarse.std() + 1e-6)
+
+    tex_amp = float(rng2.uniform(5, 12)) * float(alpha_mult)
+    for c in range(3):
+        out[:, :, c] = out[:, :, c] + noise_coarse * tex_amp * patch_alpha
+
+    # ── 5. Slight whitening in damage area ──
+    whiten = float(rng2.uniform(8, 20)) * float(alpha_mult)
+    for c in range(3):
+        out[:, :, c] = out[:, :, c] + whiten * patch_alpha
+
+    # ── 6. Fine hairline scratches radiating from spot ──
+    scratch_layer = np.zeros((H, W), dtype=np.float32)
+    n_hairlines = int(rng2.integers(4, 10))
+    base_angle = float(rng2.uniform(0, np.pi))
+
+    for i in range(n_hairlines):
+        angle = base_angle + float(rng2.uniform(-0.5, 0.5))
+        ca, sa = np.cos(angle), np.sin(angle)
+
+        sx = spot_x + int(rng2.integers(-patch_r // 4, patch_r // 4 + 1))
+        sy = spot_y + int(rng2.integers(-patch_r // 4, patch_r // 4 + 1))
+
+        length = int(rng2.integers(int(patch_r * 0.8), int(patch_r * 2.5)))
+        n_pts = int(rng2.integers(12, 25))
+        t = np.linspace(0, 1, n_pts).astype(np.float32)
+
+        curve_amp = float(rng2.uniform(1.0, 4.0))
+        wobble = np.sin(t * np.pi * float(rng2.uniform(0.5, 1.5)) +
+                        float(rng2.uniform(0, 2 * np.pi))) * curve_amp
+
+        px_arr = np.clip(sx + ca * length * t + (-sa) * wobble, 0, W - 1).astype(np.int32)
+        py_arr = np.clip(sy + sa * length * t + ca * wobble, 0, H - 1).astype(np.int32)
+
+        thick = int(rng2.integers(1, 3))
+        for j in range(n_pts - 1):
+            if float(rng2.random()) < 0.06:
+                continue
+            p0 = (int(px_arr[j]), int(py_arr[j]))
+            p1 = (int(px_arr[j + 1]), int(py_arr[j + 1]))
+            frac = min(t[j], 1.0 - t[j]) * 2.0
+            inten = float(np.clip(frac * rng2.uniform(0.5, 1.0), 0.15, 1.0))
+            cv2.line(scratch_layer, p0, p1, inten, thick, cv2.LINE_AA)
+
+    scratch_layer = cv2.GaussianBlur(scratch_layer, (0, 0), 0.7)
+    scratch_layer = np.clip(scratch_layer, 0, 1) * mask_f
+
+    # Scratches: whitish lines (abraded plastic reflects diffusely = lighter)
+    scratch_whiten = float(rng2.uniform(80, 160)) * float(alpha_mult)
+    for c in range(3):
+        out[:, :, c] = out[:, :, c] + scratch_layer * scratch_whiten
+
     return np.clip(out, 0, 255).astype(np.uint8)
 
 
@@ -1254,16 +1225,11 @@ def _flatten_metallic_inside_mask(ok_bgr, mask, rng, mask_r, flatten_strength=0.
 
 def synth_nhựa_chảy(ok, mask, seed=0, intensity=0.5):
     """
-    Nhựa chảy (plastic flow): raised plastic blob with surface texture.
+    Nhựa chảy (plastic flow): melted-plastic blob with bubbly/crystalline texture.
 
-    Pipeline:
-      Step 1 — Base shading (brightness bump matching real ref appearance):
-        blob    (50%): smooth raised cosine, bright rim, edge shadow
-        cluster (33%): 3-7 crystalline micro-bumps
-        haze    (17%): directional wave brightening
-
-      Step 2 — Surface texture overlay (ALL modes get this):
-        ripple / grain / streak / cellular  →  ±10-22 DN within mask
+    Mask = position + size only. Shape generated procedurally.
+    Visual pattern: bright crystalline facets on a slightly raised base,
+    with darker gaps between facets.
     """
     rng2 = np.random.default_rng(seed)
     out  = ok.copy().astype(np.float32)
@@ -1277,154 +1243,78 @@ def synth_nhựa_chảy(ok, mask, seed=0, intensity=0.5):
     cy     = float(ys.mean())
     mask_r = max(5.0, float(np.sqrt(np.count_nonzero(mask > 127) / np.pi)))
 
-    mode = rng2.choice(["blob", "blob", "blob", "cluster", "cluster", "haze"])
-
-    # ── Alpha masks ───────────────────────────────────────────────────────────
-    # Sharp alpha: clear blob boundary (không quá mờ)
-    sig_sharp  = float(np.clip(mask_r * 0.15, 0.8, 8.0))
-    alpha_sharp = cv2.GaussianBlur(mask.astype(np.float32) / 255.0, (0, 0), sig_sharp)
-    alpha_sharp = np.clip(alpha_sharp, 0, 1)
-
-    # Medium alpha: for outer shadow (slightly wider than blob)
-    sig_med   = float(np.clip(mask_r * 0.35, 1.5, 16.0))
-    alpha_med = cv2.GaussianBlur(mask.astype(np.float32) / 255.0, (0, 0), sig_med)
-    alpha_med = np.clip(alpha_med, 0, 1)
-
-    # Strict alpha: for texture (tight inside shape)
-    sig_strict   = float(np.clip(mask_r * 0.12, 0.6, 5.0))
-    alpha_strict = cv2.GaussianBlur(mask.astype(np.float32) / 255.0, (0, 0), sig_strict)
-    alpha_strict = np.clip(alpha_strict, 0, 1)
-
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
 
-    # ── Step 1: base shading ──────────────────────────────────────────────────
+    # ── Organic blob shape ────────────────────────────────────────────────────
+    dist_from_center = np.sqrt((xx - cx)**2 + (yy - cy)**2)
+    n_ang = 16
+    ang_samples = np.linspace(0, 2 * np.pi, n_ang, endpoint=False)
+    r_noise = rng2.uniform(0.65, 1.35, n_ang)
+    r_noise = np.convolve(np.tile(r_noise, 3), np.ones(4)/4, mode='same')[n_ang:2*n_ang]
+    pix_ang = np.arctan2(yy - cy, xx - cx)
+    r_at_pix = np.interp(
+        (pix_ang % (2 * np.pi)), ang_samples,
+        r_noise * mask_r, period=2 * np.pi,
+    )
+    blob_dist_norm = dist_from_center / (r_at_pix + 1e-6)
+    alpha = np.clip(1.0 - blob_dist_norm, 0, 1)
+    alpha = np.clip(alpha * 4.0, 0, 1)  # sharp edge
+    alpha = cv2.GaussianBlur(alpha, (0, 0), max(0.3, mask_r * 0.03))
+    alpha = np.clip(alpha, 0, 1)
 
-    if mode == "blob":
-        # ── Crumpled thin plastic film model (from ref image analysis) ────────
-        # Ref shows: thin plastic sheet that's crumpled/folded → NOT a smooth blob.
-        # Visual signature:
-        #   - Multiple fine fold ridges (bright ridge + dark valley, like folded cellophane)
-        #   - Overall brightness ≈ surrounding (not much lift), texture is the key difference
-        #   - Irregular organic shape (already from gen_dent_patch)
-        #   - Thin hard shadow ring just outside
+    alpha_bin = (alpha > 0.15).astype(np.uint8)
+    alpha_inv = 1 - alpha_bin
+    dist_out = cv2.distanceTransform(alpha_inv, cv2.DIST_L2, 5).astype(np.float32)
 
-        mask_bin = (mask > 127).astype(np.uint8)
-        mask_inv = 1 - mask_bin
-        dist_out = cv2.distanceTransform(mask_inv, cv2.DIST_L2, 5).astype(np.float32)
-
-        rng_p = np.random.default_rng(seed + 9191)
-
-        # ── 1. Subtle base lift (slight — crumpled plastic ≈ same tone as surround) ──
-        lift = alpha_sharp * (8.0 + intensity * 10.0)
-        for c in range(3):
-            out[:, :, c] += lift
-
-        # ── 2. Fold ridges — core of crumpled plastic look ────────────────────
-        # Each fold: a thin bright ridge with dark sides, at random angle & position.
-        # Bright = fold crest facing light; dark = fold valley in shadow.
-        n_folds  = int(rng_p.integers(10, 22))
-        fold_map = np.zeros((H, W), dtype=np.float32)
-
-        for _ in range(n_folds):
-            fold_ang = float(rng_p.uniform(0, np.pi))          # fold line direction
-            # Fold center: random inside mask (biased toward center)
-            ang2 = float(rng_p.uniform(0, 2 * np.pi))
-            rad2 = mask_r * float(rng_p.beta(1.2, 2.0))
-            fcx  = cx + rad2 * np.cos(ang2)
-            fcy  = cy + rad2 * np.sin(ang2)
-
-            # Perpendicular distance from fold axis
-            perp  = (xx - fcx) * np.sin(fold_ang) - (yy - fcy) * np.cos(fold_ang)
-            # Along-axis fade (fold has finite length)
-            along = (xx - fcx) * np.cos(fold_ang) + (yy - fcy) * np.sin(fold_ang)
-            fold_len  = mask_r * float(rng_p.uniform(0.25, 0.85))
-            along_fade = np.exp(-0.5 * (along / fold_len) ** 2)
-
-            # Ridge profile: sharp bright crest with dark flanks
-            fw    = max(1.2, mask_r * float(rng_p.uniform(0.03, 0.10)))
-            crest = np.exp(-0.5 * (perp / fw) ** 2)           # bright crest
-            flank = np.exp(-0.5 * (perp / (fw * 2.5)) ** 2)  # wider dark shadow
-            ridge = crest - flank * 0.45                       # net: bright center, dark sides
-
-            amp = float(rng_p.uniform(0.4, 1.0))
-            fold_map += ridge * along_fade * amp
-
-        # Normalize fold map to [-1, 1] then scale
-        fm_max = np.abs(fold_map).max() + 1e-6
-        fold_map = fold_map / fm_max
-        # Scale: folds ±30-55 DN inside mask
-        fold_add = fold_map * alpha_strict * (30.0 + intensity * 25.0)
-
-        # ── 3. Fine grain (plastic surface micro-texture) ─────────────────────
-        n1   = rng_p.normal(0, 1, (H, W)).astype(np.float32)
-        grain = cv2.GaussianBlur(n1, (0, 0), max(1.0, mask_r * 0.05))
-        grain = grain / (np.abs(grain).max() + 1e-6)
-        grain_add = grain * alpha_strict * (5.0 + intensity * 5.0)
-
-        for c in range(3):
-            out[:, :, c] += fold_add + grain_add
-
-        # ── 4. Thin hard shadow ring just outside boundary ────────────────────
-        shad_w    = max(1.2, mask_r * 0.08)
-        shad_prof = np.exp(-0.5 * (dist_out / shad_w) ** 2)
-        shad_prof = shad_prof * (1.0 - alpha_sharp)
-        contact_shadow = shad_prof * (110.0 + intensity * 60.0)
-        for c in range(3):
-            out[:, :, c] -= contact_shadow
-
-    elif mode == "cluster":
-        # Multiple shiny micro-bumps (each with its own Phong highlight)
-        n_bumps        = int(rng2.integers(3, 8))
-        cluster_spread = mask_r * float(rng2.uniform(0.40, 0.75))
-        la = float(rng2.uniform(0, 2 * np.pi))          # shared light angle
-        total = np.zeros((H, W), dtype=np.float32)
-
-        for _ in range(n_bumps):
-            bx = cx + float(rng2.uniform(-cluster_spread, cluster_spread))
-            by = cy + float(rng2.uniform(-cluster_spread, cluster_spread))
-            r  = max(2.0, mask_r * float(rng2.uniform(0.12, 0.28)))
-            d  = np.sqrt((xx - bx) ** 2 + (yy - by) ** 2)
-            b  = np.clip(1.0 - d / r, 0.0, 1.0) ** 2   # quadratic
-
-            gy_b, gx_b = np.gradient(b)
-            nx_b = -gx_b * 5.0;  ny_b = -gy_b * 5.0;  nz_b = np.ones_like(nx_b)
-            nn   = np.sqrt(nx_b**2 + ny_b**2 + nz_b**2) + 1e-6
-            nx_b, ny_b, nz_b = nx_b/nn, ny_b/nn, nz_b/nn
-            lx_d = np.cos(la) * 0.5;  ly_d = np.sin(la) * 0.5;  lz_d = 0.75
-            ndl  = nx_b * lx_d + ny_b * ly_d + nz_b * lz_d
-            total += (np.clip(ndl, 0, 1) * b * (45.0 + intensity * 35.0) +
-                      np.clip(ndl, 0, 1) ** 10 * b * (70.0 + intensity * 60.0))
-
-        total = np.clip(total, 0, 230.0)
-        # Base shadow under cluster
-        dist  = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
-        outer = np.clip((dist - mask_r * 0.90) / (mask_r * 0.35), 0, 1)
-        outer_shad = outer * (1 - outer) * 4.0 * (20.0 + intensity * 20.0)
-        sub_out = outer_shad * (alpha_med - alpha_sharp)
-        for c in range(3):
-            out[:, :, c] += total * alpha_sharp - sub_out
-
-    else:  # haze — broad flow mark
-        sig_haze   = float(np.clip(mask_r * 0.65, 2.0, 28.0))
-        alpha_haze = cv2.GaussianBlur(mask.astype(np.float32) / 255.0, (0, 0), sig_haze)
-        alpha_haze = np.clip(alpha_haze, 0, 1)
-
-        wave_angle = float(rng2.uniform(0, np.pi))
-        proj = (xx - cx) * np.cos(wave_angle) + (yy - cy) * np.sin(wave_angle)
-        freq = float(rng2.uniform(0.04, 0.09))
-        wave = 0.35 * np.sin(proj * freq * 2.0 * np.pi) + 0.65
-
-        noise = rng2.normal(0, 0.14, (H, W)).astype(np.float32)
-        noise = cv2.GaussianBlur(noise, (0, 0), 2.5)
-
-        haze = np.clip((wave + noise) * (25.0 + intensity * 30.0), 0, 85.0)
-        for c in range(3):
-            out[:, :, c] += haze * alpha_haze
-
-    # ── Step 2: surface texture overlay ──────────────────────────────────────
-    tex = _nhựa_surface_texture(rng2, H, W, cx, cy, mask_r, alpha_strict, intensity)
+    # ── Slight base lift (gaps between crystals still slightly brighter) ──────
+    base_lift = 20.0 + intensity * 25.0
     for c in range(3):
-        out[:, :, c] += tex * 2.0    # stronger texture — plastic flow marks
+        out[:, :, c] += alpha * base_lift
+
+    # ── Crystal facets: the main visual feature ──────────────────────────────
+    # Each facet: a bright irregular patch within the blob
+    n_facets = int(rng2.integers(5, 14))
+    facet_layer = np.zeros((H, W), dtype=np.float32)
+
+    for _ in range(n_facets):
+        ang = float(rng2.uniform(0, 2 * np.pi))
+        rad = mask_r * float(rng2.beta(1.0, 2.5))
+        fx = cx + rad * np.cos(ang)
+        fy = cy + rad * np.sin(ang)
+        # Each facet is an elongated bright patch
+        fr = max(1.5, mask_r * float(rng2.uniform(0.08, 0.30)))
+        # Anisotropic: stretch along random direction
+        stretch_ang = float(rng2.uniform(0, np.pi))
+        stretch_ratio = float(rng2.uniform(1.0, 2.5))
+        dx = (xx - fx) * np.cos(stretch_ang) + (yy - fy) * np.sin(stretch_ang)
+        dy = -(xx - fx) * np.sin(stretch_ang) + (yy - fy) * np.cos(stretch_ang)
+        d = np.sqrt((dx / stretch_ratio)**2 + dy**2)
+        facet = np.clip(1.0 - (d / fr)**2, 0, 1)**1.5
+        brightness = float(rng2.uniform(0.5, 1.0))
+        facet_layer += facet * brightness
+
+    f_max = facet_layer.max() + 1e-6
+    facet_layer = facet_layer / f_max
+    # Very strong brightness — real NG peaks at 255 (white)
+    # Background ~100-120, defect bright areas ~200-255
+    # Need facets to add 80-150 DN
+    facet_add = facet_layer * alpha * (140.0 + intensity * 120.0)
+    for c in range(3):
+        out[:, :, c] += facet_add
+
+    # ── Extra bright glints on top of facets ──────────────────────────────────
+    n_glints = int(rng2.integers(3, 8))
+    for _ in range(n_glints):
+        ang = float(rng2.uniform(0, 2 * np.pi))
+        rad = mask_r * float(rng2.beta(1.0, 2.0))
+        gx = cx + rad * np.cos(ang)
+        gy_pt = cy + rad * np.sin(ang)
+        gr = max(1.0, mask_r * float(rng2.uniform(0.04, 0.14)))
+        d = np.sqrt((xx - gx)**2 + (yy - gy_pt)**2)
+        glint = np.exp(-0.5 * (d / gr)**2)
+        glint_bright = float(rng2.uniform(100.0, 200.0)) * (0.5 + intensity * 0.5)
+        for c in range(3):
+            out[:, :, c] += glint * alpha * glint_bright
 
     return np.clip(out, 0, 255).astype(np.uint8)
 

@@ -2,8 +2,6 @@
 
 function toggleAIParams() {
   const isAi = document.getElementById("chk-use-ai").checked;
-  const divBlock = document.getElementById("params-diversity");
-  if(divBlock) divBlock.style.display = isAi ? "flex" : "none";
   const promptBlock = document.getElementById("params-prompt");
   if(promptBlock) promptBlock.classList.toggle("d-none", !isAi);
   if(promptBlock) promptBlock.classList.toggle("d-flex", isAi);
@@ -44,7 +42,7 @@ function selectGroup(group) {
     if (el) el.style.display = (id === activeHint) ? "" : "none";
   });
   
-  const showNgRef = (group === "metal_cap") || (group === "pharma");
+  const showNgRef = (group === "metal_cap");
   document.getElementById("ng-ref-wrap").style.display = showNgRef ? "" : "none";
   if (!showNgRef) clearNgRef();
 
@@ -65,8 +63,9 @@ function onDefectChange() {
   const entry = GROUPS[currentGroup].defects.find(d => d.key === defectKey) || {};
   const paramType = entry.params;
 
-  ["params-crack", "params-dent", "params-hollow", "params-polar", "params-scuff",
-    "params-spots", "params-napchai-ring", "params-plastic-flow-tune", "params-napchai-scratch"]
+  ["params-crack", "params-dent", "params-polar", "params-scuff",
+    "params-spots", "params-napchai-ring", "params-plastic-flow-tune", "params-napchai-scratch",
+    "params-can-mieng-tune"]
     .forEach(id => {
       const el = document.getElementById(id);
       if (el) {
@@ -84,17 +83,17 @@ function onDefectChange() {
   }
   
   const showNgRef = (currentGroup === "metal_cap") ||
-    (currentGroup === "pharma" && (defectKey === "hollow" || defectKey === "underfill"));
+    (currentGroup === "cap" && defectKey === "plastic_flow");
   const ngRefWrap = document.getElementById("ng-ref-wrap");
 
   if (showNgRef) {
     ngRefWrap.style.display = "";
     const ngRefLabel = document.getElementById("ng-ref-label");
     if (ngRefLabel) {
-      if (currentGroup === "pharma") {
-        ngRefLabel.innerHTML = 'NG Reference (Texture/Hollow) <span class="text-muted fw-normal">optional</span>';
+      if (currentGroup === "cap" && defectKey === "plastic_flow") {
+        ngRefLabel.innerHTML = 'NG Reference (Defect Texture) / NG参照 (欠陥テクスチャ) <span class="text-danger fw-bold">required for AI / AI必須</span>';
       } else {
-        ngRefLabel.innerHTML = 'NG Reference (IP-Adapter) <span class="text-muted fw-normal">optional</span>';
+        ngRefLabel.innerHTML = 'NG Reference (IP-Adapter) / NG参照 <span class="text-muted fw-normal">optional / 任意</span>';
       }
     }
   } else {
@@ -118,12 +117,12 @@ function onDefectChange() {
   const hintEl = document.getElementById("mc-mask-hint");
   if (hintEl) {
     if (currentGroup === "metal_cap") {
-      if (defectKey === "scratch") hintEl.textContent = "Paint scratch region (slightly inside the outer rim), then click Set";
-      else if (defectKey === "mc_deform") hintEl.textContent = "Paint a position on the outer rim (just to indicate location), then click Set";
-      else if (defectKey === "ring_fracture") hintEl.textContent = "Paint a thin band on the rim you want to distort, then click Set";
-      else hintEl.textContent = "Paint the defect region, then click Set";
+      if (defectKey === "scratch") hintEl.textContent = "Paint scratch region, then click Set / 傷領域を塗り、確定をクリック";
+      else if (defectKey === "mc_deform") hintEl.textContent = "Paint position on outer rim, then click Set / 外縁の位置を塗り、確定をクリック";
+      else if (defectKey === "ring_fracture") hintEl.textContent = "Paint a thin band on the rim, then click Set / リムに細い帯を塗り、確定をクリック";
+      else hintEl.textContent = "Paint the defect region, then click Set / 欠陥領域を塗り、確定をクリック";
     } else {
-      hintEl.textContent = "Paint the defect region on the image, then click Set";
+      hintEl.textContent = "Paint the defect region on the image, then click Set / 画像上に欠陥領域を塗り、確定をクリック";
     }
   }
   
@@ -152,7 +151,7 @@ function onUploadOk(input) {
     document.getElementById("btn-save").disabled = true;
     document.getElementById("btn-download").disabled = true;
     _mcResetCanvas();
-    log("Uploaded: " + file.name);
+    log("Uploaded / \u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u5b8c\u4e86: " + file.name);
   };
   reader.readAsDataURL(file);
 }
@@ -167,106 +166,25 @@ function onUploadNgRef(input) {
     img.onload = () => {
       _ngFullImg = img;
       ngRefB64 = dataUrl.split(",")[1];
-      document.getElementById("thumb-ng-ref").src = dataUrl;
+      const thumb = document.getElementById("thumb-ng-ref");
+      thumb.src = dataUrl;
+      thumb.style.display = "";
       document.getElementById("ng-ref-name").textContent = file.name;
-      document.getElementById("ng-ref-dim").textContent = img.width + "\u00d7" + img.height + " (full)";
+      document.getElementById("ng-ref-dim").textContent = img.width + "\u00d7" + img.height;
       document.getElementById("ng-ref-loaded").style.display = "";
-      document.getElementById("ng-crop-panel").style.display = "none";
-      log("NG ref loaded: " + file.name);
+      log("NG ref loaded / NG\u53c2\u7167\u8aad\u307f\u8fbc\u307f: " + file.name);
     };
     img.src = dataUrl;
   };
   reader.readAsDataURL(file);
 }
 
-function toggleNgCropPanel() {
-  const panel = document.getElementById("ng-crop-panel");
-  const open = panel.style.display !== "none";
-  if (open) { panel.style.display = "none"; return; }
-  panel.style.display = "";
-  _initNgCropCanvas();
-}
-
-function _initNgCropCanvas() {
-  if (!_ngFullImg) return;
-  const cv = document.getElementById("ng-crop-canvas");
-  _ngCropScale = Math.min(1, _NG_CVW / _ngFullImg.width);
-  cv.width = Math.round(_ngFullImg.width * _ngCropScale);
-  cv.height = Math.round(_ngFullImg.height * _ngCropScale);
-  _ngCropRect = null;
-  _renderNgCrop();
-  cv.onmousedown = e => {
-    const p = _ngCropPos(e); _ngCropSX = p[0]; _ngCropSY = p[1];
-    _ngCropDraw = true; _ngCropRect = null;
-  };
-  cv.onmousemove = e => {
-    if (!_ngCropDraw) return;
-    const p = _ngCropPos(e);
-    _ngCropRect = {
-      x: Math.min(_ngCropSX, p[0]), y: Math.min(_ngCropSY, p[1]),
-      w: Math.abs(p[0] - _ngCropSX), h: Math.abs(p[1] - _ngCropSY)
-    };
-    _renderNgCrop();
-  };
-  cv.onmouseup = () => { _ngCropDraw = false; };
-}
-
-function _ngCropPos(e) {
-  const cv = document.getElementById("ng-crop-canvas");
-  const r = cv.getBoundingClientRect();
-  return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height];
-}
-
-function _renderNgCrop() {
-  const cv = document.getElementById("ng-crop-canvas");
-  const ctx = cv.getContext("2d");
-  ctx.clearRect(0, 0, cv.width, cv.height);
-  ctx.drawImage(_ngFullImg, 0, 0, cv.width, cv.height);
-  const rc = _ngCropRect;
-  if (rc && rc.w > 4 && rc.h > 4) {
-    ctx.fillStyle = "rgba(0,0,0,0.5)";
-    ctx.fillRect(0, 0, cv.width, rc.y);
-    ctx.fillRect(0, rc.y + rc.h, cv.width, cv.height - rc.y - rc.h);
-    ctx.fillRect(0, rc.y, rc.x, rc.h);
-    ctx.fillRect(rc.x + rc.w, rc.y, cv.width - rc.x - rc.w, rc.h);
-    ctx.strokeStyle = "#00d4ff"; ctx.lineWidth = 2;
-    ctx.setLineDash([6, 3]); ctx.strokeRect(rc.x, rc.y, rc.w, rc.h);
-    ctx.setLineDash([]);
-    const iw = Math.round(rc.w / _ngCropScale), ih = Math.round(rc.h / _ngCropScale);
-    ctx.fillStyle = "#00d4ff"; ctx.font = "12px monospace";
-    ctx.fillText(iw + "\u00d7" + ih, rc.x + 4, rc.y + rc.h - 4);
-  }
-}
-
-function confirmNgCrop() {
-  const rc = _ngCropRect;
-  if (!rc || rc.w < 10 || rc.h < 10) {
-    document.getElementById("ng-crop-hint").textContent = "\u26a0 Draw a region first";
-    return;
-  }
-  const ix = Math.round(rc.x / _ngCropScale), iy = Math.round(rc.y / _ngCropScale);
-  const iw = Math.round(rc.w / _ngCropScale), ih = Math.round(rc.h / _ngCropScale);
-  const tmp = document.createElement("canvas");
-  tmp.width = iw; tmp.height = ih;
-  tmp.getContext("2d").drawImage(_ngFullImg, ix, iy, iw, ih, 0, 0, iw, ih);
-  const dataUrl = tmp.toDataURL("image/png");
-  ngRefB64 = dataUrl.split(",")[1];
-  document.getElementById("thumb-ng-ref").src = dataUrl;
-  document.getElementById("ng-ref-dim").textContent = "\u2702 " + iw + "\u00d7" + ih + " (cropped)";
-  document.getElementById("ng-crop-panel").style.display = "none";
-  log("NG ref cropped: " + iw + "\u00d7" + ih + "px");
-}
-
-function cancelNgCrop() {
-  document.getElementById("ng-crop-panel").style.display = "none";
-}
-
 function clearNgRef() {
-  ngRefB64 = null; _ngFullImg = null; _ngCropRect = null;
+  ngRefB64 = null; _ngFullImg = null;
   const inp = document.getElementById("upload-ng-ref");
   if (inp) inp.value = "";
+  document.getElementById("thumb-ng-ref").style.display = "none";
   document.getElementById("ng-ref-loaded").style.display = "none";
-  document.getElementById("ng-crop-panel").style.display = "none";
 }
 
 function onUploadBatchFiles(input) {
@@ -327,6 +245,21 @@ function buildParams() {
     const np = (document.getElementById("txt-neg-prompt")?.value || "").trim();
     if (pp) p.prompt = pp;
     if (np) p.negative_prompt = np;
+    p.strength = parseFloat(document.getElementById("slider-ai-strength").value);
+    p.guidance_scale = parseFloat(document.getElementById("slider-ai-guidance").value);
+    p.steps = parseInt(document.getElementById("slider-ai-steps").value);
+    p.ip_scale = parseFloat(document.getElementById("slider-ai-ipscale").value);
+    p.controlnet_scale = parseFloat(document.getElementById("slider-ai-cnscale").value);
+    p.naturalness = parseFloat(document.getElementById("slider-ai-natural").value);
+    p.inject_alpha = parseFloat(document.getElementById("slider-ai-alpha").value);
+    p.inpaint_size = parseInt(document.getElementById("slider-ai-inpsize").value);
+    p.position_jitter = parseFloat(document.getElementById("slider-ai-jitter").value);
+    p.mask_dilate = parseInt(document.getElementById("slider-ai-dilate").value);
+    const depthMode = document.getElementById("sel-ai-depthmode").value;
+    if (depthMode !== "auto") p.depth_mode = depthMode;
+    p.depth_amplitude = parseFloat(document.getElementById("slider-ai-depthamp").value);
+    p.depth_sigma_factor = parseFloat(document.getElementById("slider-ai-depthsig").value);
+    p.enable_model_cpu_offload = document.getElementById("chk-ai-cpuoffload").checked;
   }
   if (defectKey === "crack") {
     p.break_type = document.getElementById("sel-break-type").value;
@@ -339,11 +272,6 @@ function buildParams() {
   if (defectKey === "dent") {
     p.dent_strength = parseFloat(document.getElementById("slider-dent-strength").value);
     p.dent_size = parseFloat(document.getElementById("slider-dent-size").value);
-  }
-  if (defectKey === "hollow" || defectKey === "underfill") {
-    const fixedEl = document.getElementById("chk-fixed-region");
-    if (fixedEl) p.fixed_region = fixedEl.checked;
-    p.refine_ai = isAiChecked;
   }
   if (ngRefB64) {
     p.ref_image_b64 = ngRefB64;
@@ -375,12 +303,14 @@ function buildParams() {
       p.use_flux = document.getElementById("chk-use-flux")?.checked || false;
     } else {
       p.mode = document.getElementById("sel-mode").value;
+      p.scratch_size = parseFloat(document.getElementById("slider-scratch-size").value);
     }
   }
   if (currentGroup === "cap" && defectKey === "plastic_flow") {
     p.patch_max_dim = parseInt(document.getElementById("slider-pf-maxdim").value);
     p.patch_scale = parseFloat(document.getElementById("slider-pf-scale").value);
     p.synth_positive_only = document.getElementById("chk-pf-shadowfree").checked;
+    p.pixel_warp_strength = parseFloat(document.getElementById("slider-pf-warp").value);
   }
   if (defectKey === "dark_spots") {
     p.n_spots_min = 1;
@@ -388,6 +318,11 @@ function buildParams() {
     p.r_min = parseInt(document.getElementById("inp-r-min").value);
     p.r_max = parseInt(document.getElementById("inp-r-max").value);
     p.bump = true;
+  }
+  if (currentGroup === "cap" && defectKey === "can_mieng") {
+    p.warp_strength = parseFloat(document.getElementById("slider-cm-warp").value);
+    p.streak_length = parseFloat(document.getElementById("slider-cm-streak").value);
+    p.thickness = parseFloat(document.getElementById("slider-cm-thick").value);
   }
   return p;
 }
@@ -431,7 +366,7 @@ function onAngleRandomToggle() {
   const slider = document.getElementById("slider-angle");
   const label = document.getElementById("val-angle");
   slider.disabled = isRandom;
-  label.textContent = isRandom ? "Random" : slider.value + "\u00b0";
+  label.textContent = isRandom ? "Random / \u30e9\u30f3\u30c0\u30e0" : slider.value + "\u00b0";
 }
 
 function clearLog() {
@@ -448,4 +383,12 @@ function log(msg) {
 function toggleFailReasons() {
   const wrap = document.getElementById("fail-reasons-wrap");
   wrap.style.display = wrap.style.display === "none" ? "block" : "none";
+}
+
+function toggleSdxlAdvanced() {
+  const wrap = document.getElementById("sdxl-advanced-wrap");
+  const icon = document.getElementById("sdxl-toggle-icon");
+  const isHidden = wrap.style.display === "none";
+  wrap.style.display = isHidden ? "" : "none";
+  icon.innerHTML = isHidden ? "&#9650;" : "&#9660;";
 }

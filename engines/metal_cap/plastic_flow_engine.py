@@ -76,12 +76,12 @@ def _mask_from_small_random_region(img_shape_hw: tuple[int, int], bbox_xywh: tup
     h = max(1, min(H - y, h))
 
     # radius as fraction of product bbox size
-    r_min_frac = float(params.get("small_r_min", 0.015))
-    r_max_frac = float(params.get("small_r_max", 0.035))
+    r_min_frac = float(params.get("small_r_min", 0.03))
+    r_max_frac = float(params.get("small_r_max", 0.07))
     r_min_frac = max(0.003, min(0.10, r_min_frac))
     r_max_frac = max(r_min_frac + 0.001, min(0.20, r_max_frac))
     r = float(min(w, h)) * float(rng.uniform(r_min_frac, r_max_frac))
-    r = float(max(5.0, min(60.0, r)))
+    r = float(max(5.0, min(120.0, r)))
 
     cx = float(x + rng.uniform(0.20, 0.80) * w)
     cy = float(y + rng.uniform(0.20, 0.80) * h)
@@ -590,114 +590,144 @@ def _cv_synthesize(img_bgr: np.ndarray, params: dict) -> tuple[np.ndarray, np.nd
         x, y, w, h = (0, 0, img_bgr.shape[1], img_bgr.shape[0])
 
     rng = np.random.default_rng(seed)
-    # Preferred pipeline: NG ref → extract patch + alpha → warp patch+alpha → blend into OK
-    ref_b64 = params.get("ref_image_b64")
-    if ref_b64:
-        try:
-            ref_rgb = decode_b64(ref_b64)
-            ref_bgr = cv2.cvtColor(ref_rgb, cv2.COLOR_RGB2BGR)
-            patch_bgr, alpha_f = _extract_patch_and_alpha(ref_bgr, params)
-            patch_bgr, alpha_f = _warp_patch_and_alpha(patch_bgr, alpha_f, rng, params)
-
-            # Place patch strictly inside product bbox (safe margin so patch won't be clipped)
-            ph, pw = patch_bgr.shape[:2]
-            half_w = max(1, pw // 2)
-            half_h = max(1, ph // 2)
-            margin = int(params.get("place_margin_px", 10))
-            margin = max(0, min(120, margin))
-
-            # Robust interior: prefer actual product component over bright ring/background
-            interior = _robust_product_interior_mask(
-                img_bgr,
-                shrink_px=int(params.get("product_interior_shrink_px", max(18, max(half_w, half_h) + margin))),
-            )
-            pt = _sample_point_in_mask(interior, rng)
-            if pt is None:
-                # fallback: clamp to bbox center
-                cx = int(x + w / 2)
-                cy = int(y + h / 2)
-            else:
-                cx, cy = pt
-            blended_bgr, placed_mask = _blend_patch_into_ok(img_bgr, patch_bgr, alpha_f, (cx, cy))
-
-            # Optional: additional strong warp inside placed mask to emphasize "raised plastic"
-            warp_strength = float(params.get("pixel_warp_strength", 1.6))
-            warp_strength = float(max(0.0, min(6.0, warp_strength)))
-            if warp_strength > 0:
-                blended_bgr = _strong_warp_inside_mask(blended_bgr, placed_mask, rng, strength=warp_strength)
-
-            # Optional: run synth_nhựa_chảy on top for shading/texture (light, avoids halo)
-            use_synth = bool(params.get("use_synth", True))
-            if use_synth:
-                # Use a much tighter "core" mask for synth_nhựa_chảy to avoid dark outer ring.
-                placed_mask2 = _postprocess_mask(placed_mask, img_bgr.shape[:2], params)
-                core_shrink = int(params.get("synth_core_shrink_px", 10))
-                core_shrink = max(0, min(40, core_shrink))
-                if core_shrink > 0:
-                    ke = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (core_shrink * 2 + 1, core_shrink * 2 + 1))
-                    core_mask = cv2.erode(placed_mask2, ke, iterations=1)
-                else:
-                    core_mask = placed_mask2
-
-                # Slightly reduce synth intensity to avoid heavy shadowing
-                synth_intensity = float(params.get("synth_intensity", intensity * 0.65))
-                synth_intensity = float(max(0.05, min(1.0, synth_intensity)))
-
-                synth_bgr = _exp.synth_nhựa_chảy(blended_bgr, core_mask, seed=seed, intensity=synth_intensity)
-
-                # Critical: synth_nhựa_chảy adds outer shadow outside mask.
-                # We explicitly composite ONLY inside the (softened) core region to avoid black rings.
-                core_alpha = cv2.GaussianBlur(core_mask.astype(np.float32) / 255.0, (0, 0), 3.0)
-                core_alpha = np.clip(core_alpha, 0, 1)[:, :, None]
-                # Option: keep only positive delta (bright/texture), drop negative delta (shadow ring).
-                positive_only = bool(params.get("synth_positive_only", True))
-                if positive_only:
-                    delta = synth_bgr.astype(np.float32) - blended_bgr.astype(np.float32)
-                    delta = np.maximum(delta, 0.0)
-                    out = blended_bgr.astype(np.float32) + delta * core_alpha
-                else:
-                    out = synth_bgr.astype(np.float32) * core_alpha + blended_bgr.astype(np.float32) * (1.0 - core_alpha)
-                out_bgr = np.clip(out, 0, 255).astype(np.uint8)
-
-                # Return the *placed* mask (soft region) for UI/debug, not the core mask
-                return out_bgr, placed_mask2
-            return blended_bgr, placed_mask
-        except Exception as e:
-            print(f"[plastic_flow] ref patch pipeline failed: {e} — falling back to procedural mask")
-
-    # Fallback: single small random region + strong warp + synth
+    # Always use blob mask for CV base — NG ref extraction picks up specular
+    # highlights on metal caps (thin lines) instead of actual defect blobs.
+    # The NG reference is used by SDXL IP-Adapter for texture guidance instead.
     mask = _mask_from_small_random_region(img_bgr.shape[:2], (x, y, w, h), rng, params)
     mask = _postprocess_mask(mask, img_bgr.shape[:2], params)
-    warp_strength = float(params.get("pixel_warp_strength", 2.2))
+    warp_strength = float(params.get("pixel_warp_strength", 0.6))
     warp_strength = float(max(0.0, min(6.0, warp_strength)))
     base_warped = _strong_warp_inside_mask(img_bgr, mask, rng, strength=warp_strength)
     result = _exp.synth_nhựa_chảy(base_warped, mask, seed=seed, intensity=intensity)
     return result, mask
 
 
+_PLASTIC_FLOW_PROMPT = (
+    "melted plastic blob, glossy resin droplet, bubbly crystalline plastic texture, "
+    "bright specular highlights, translucent solidified plastic, high contrast, "
+    "industrial defect, photorealistic macro photography"
+)
+_PLASTIC_FLOW_NEG = (
+    "scratch, crack, clean surface, perfect, matte, flat, low quality, text, "
+    "watermark, blurry, smooth uniform"
+)
+_PF_TARGET = (768, 768)
+_PF_STRENGTH = 0.92
+_PF_GUIDANCE = 10.0
+_PF_CN_SCALE = 0.15
+_PF_STEPS = 25
+_PF_IP_SCALE = 1.0
+
+
 def _sdxl_refine(base_rgb: np.ndarray, mask_gray: np.ndarray, params: dict) -> np.ndarray:
     """
-    Use deep_generative's appearance pipeline for refinement.
-    Returns RGB uint8 (same size).
+    SDXL + ControlNet Depth + IP-Adapter refinement for plastic flow.
+    Uses _napchai_models directly for aggressive inpainting.
+    Returns RGB uint8 (same size as input).
     """
-    from . import deep_generative as _dg
+    import gc
+    import torch
+    from PIL import Image as _PIL
+    from ..models._napchai_models import get_pipe, get_depth_est, get_lock
 
-    # Build a minimal params dict that deep_generative understands.
-    # Allow advanced overrides to pass-through if user provides them.
-    dg_params = dict(params)
-    dg_params.setdefault("naturalness", 0.7)
+    H, W = base_rgb.shape[:2]
+    seed = int(params.get("seed", 42))
 
-    # deep_generative reads ref_image_b64 (optional) and uses it if provided.
-    out = _dg.generate(
-        base_image=base_rgb,
-        mask=mask_gray,
-        defect_type="plastic_flow",
-        material="plastic",
-        params=dg_params,
-    )
-    if "result_image" not in out:
-        raise RuntimeError("deep_generative returned no result_image")
-    return decode_b64(out["result_image"])
+    # Crop around mask with generous padding for context
+    ys, xs = np.where(mask_gray > 0)
+    if len(xs) < 10:
+        raise RuntimeError("mask has no significant region")
+    pad = int(params.get("sdxl_pad_px", 80))
+    x0 = max(0, int(xs.min()) - pad)
+    y0 = max(0, int(ys.min()) - pad)
+    x1 = min(W, int(xs.max()) + pad + 1)
+    y1 = min(H, int(ys.max()) + pad + 1)
+
+    # Make crop square-ish (SDXL works better with square crops)
+    cw, ch = x1 - x0, y1 - y0
+    if cw > ch:
+        diff = cw - ch
+        y0 = max(0, y0 - diff // 2)
+        y1 = min(H, y0 + cw)
+    elif ch > cw:
+        diff = ch - cw
+        x0 = max(0, x0 - diff // 2)
+        x1 = min(W, x0 + ch)
+
+    crop_rgb = base_rgb[y0:y1, x0:x1]
+    crop_mask = mask_gray[y0:y1, x0:x1]
+
+    # Dilate mask slightly for smoother inpainting boundary
+    k_dil = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
+    crop_mask_dil = cv2.dilate(crop_mask, k_dil, iterations=1)
+
+    target = tuple(params.get("sdxl_target", _PF_TARGET))
+    strength = float(params.get("strength", _PF_STRENGTH))
+    guidance = float(params.get("guidance_scale", _PF_GUIDANCE))
+    cn_scale = float(params.get("controlnet_scale", _PF_CN_SCALE))
+    steps = int(params.get("steps", _PF_STEPS))
+    ip_scale = float(params.get("ip_scale", _PF_IP_SCALE))
+
+    crop_pil = _PIL.fromarray(crop_rgb).convert("RGB").resize(target)
+    mask_pil = _PIL.fromarray(crop_mask_dil).resize(target)
+
+    # IP-Adapter reference
+    ref_b64 = params.get("ref_image_b64")
+    if ref_b64:
+        ref_rgb = decode_b64(ref_b64)
+        ip_image = _PIL.fromarray(ref_rgb).convert("RGB").resize((256, 256))
+    else:
+        ip_image = crop_pil
+
+    prompt = str(params.get("prompt", _PLASTIC_FLOW_PROMPT))
+    neg = str(params.get("negative_prompt", _PLASTIC_FLOW_NEG))
+
+    with get_lock():
+        gc.collect()
+        try:
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+
+        pipe = get_pipe()
+        depth_est = get_depth_est()
+
+        depth_pil = depth_est(crop_pil)["depth"].convert("RGB").resize(target)
+
+        pipe.set_ip_adapter_scale(ip_scale)
+
+        print(f"[plastic_flow] SDXL inpaint: strength={strength}, guidance={guidance}, "
+              f"steps={steps}, ip_scale={ip_scale}, crop={crop_rgb.shape[1]}x{crop_rgb.shape[0]}")
+
+        with torch.inference_mode():
+            ai_out = pipe(
+                prompt=prompt,
+                negative_prompt=neg,
+                image=crop_pil,
+                mask_image=mask_pil,
+                control_image=depth_pil,
+                ip_adapter_image=ip_image,
+                controlnet_conditioning_scale=cn_scale,
+                num_inference_steps=steps,
+                guidance_scale=guidance,
+                strength=strength,
+                generator=torch.manual_seed(seed),
+            ).images[0]
+
+    # Resize back to crop size and paste into full image
+    ch_orig, cw_orig = crop_rgb.shape[:2]
+    ai_crop = np.array(ai_out.resize((cw_orig, ch_orig)))
+
+    # Soft blend at mask boundary
+    blend_mask = cv2.GaussianBlur(crop_mask_dil.astype(np.float32) / 255.0, (0, 0), 3.0)
+    blend_mask = np.clip(blend_mask, 0, 1)[:, :, None]
+
+    blended_crop = (ai_crop.astype(np.float32) * blend_mask +
+                    crop_rgb.astype(np.float32) * (1.0 - blend_mask))
+
+    result = base_rgb.copy()
+    result[y0:y1, x0:x1] = np.clip(blended_crop, 0, 255).astype(np.uint8)
+    return result
 
 
 def generate(base_image_b64: str, params: dict) -> dict:
@@ -709,6 +739,7 @@ def generate(base_image_b64: str, params: dict) -> dict:
       seed            int
       sdxl_refine     bool (default False)
       ref_image_b64   str  (optional; NG reference for IP-Adapter)
+      user_mask_b64   str  (optional; user-drawn mask — skips random mask generation)
 
     Returns:
       dict: {result_image, result_pre_refine, mask_b64, engine, metadata}
@@ -716,10 +747,28 @@ def generate(base_image_b64: str, params: dict) -> dict:
     img_rgb = decode_b64(base_image_b64)
     img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
 
-    try:
-        cv_bgr, mask_gray = _cv_synthesize(img_bgr, params)
-    except Exception as e:
-        return {"error": f"PlasticFlow CV error: {e}"}
+    user_mask_b64 = params.get("user_mask_b64") or params.get("mask_b64")
+    if user_mask_b64:
+        mask_rgb = decode_b64(user_mask_b64)
+        if mask_rgb.ndim == 3:
+            mask_gray = cv2.cvtColor(mask_rgb, cv2.COLOR_RGB2GRAY)
+        else:
+            mask_gray = mask_rgb
+        mask_gray = (mask_gray > 127).astype(np.uint8) * 255
+
+        seed = int(params.get("seed", 42))
+        intensity = float(params.get("intensity", 0.6))
+        rng = np.random.default_rng(seed)
+        warp_strength = float(params.get("pixel_warp_strength", 1.0))
+        warp_strength = float(max(0.0, min(6.0, warp_strength)))
+        cv_bgr = _strong_warp_inside_mask(img_bgr, mask_gray, rng, strength=warp_strength)
+        if _HAS_EXP:
+            cv_bgr = _exp.synth_nhựa_chảy(cv_bgr, mask_gray, seed=seed, intensity=intensity)
+    else:
+        try:
+            cv_bgr, mask_gray = _cv_synthesize(img_bgr, params)
+        except Exception as e:
+            return {"error": f"PlasticFlow CV error: {e}"}
 
     cv_rgb = cv2.cvtColor(cv_bgr, cv2.COLOR_BGR2RGB)
     pre_b64 = encode_b64(cv_rgb)
@@ -732,6 +781,8 @@ def generate(base_image_b64: str, params: dict) -> dict:
             result_b64 = encode_b64(refined_rgb)
             engine = "cv+sdxl"
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             print(f"[plastic_flow] SDXL refine failed: {e} — returning CV result")
             result_b64 = pre_b64
             engine = "cv"

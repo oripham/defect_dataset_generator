@@ -91,6 +91,7 @@ def _run_scratch(img_bgr: np.ndarray, mask_dir: str, params: dict, mask_b64: str
     alpha_mult = float(params.get("alpha_mult", 1.35))
     whiten_add = float(params.get("whiten_add", 120))
     mode       = str(params.get("mode", "auto"))
+    size       = float(params.get("scratch_size", 1.0))
 
     mask = _resolve_mask(params, img_bgr, mask_dir, seed, incoming_mask_b64=mask_b64)
     if mask is None:
@@ -100,7 +101,7 @@ def _run_scratch(img_bgr: np.ndarray, mask_dir: str, params: dict, mask_b64: str
     result = _exp.synth_plastic_scuff(result, mask, seed=seed,
                                       alpha_mult=alpha_mult,
                                       whiten_add=whiten_add,
-                                      mode=mode)
+                                      mode=mode, size=size)
     return result, mask, None
 
 
@@ -258,7 +259,8 @@ def generate(
     mask_dir = os.path.join(root, normalized_folder, "mask")
 
     try:
-        # Dispatch with mask_b64 support
+        if mask_b64:
+            params["mask_b64"] = mask_b64
         if fn in (_run_scratch, _run_thread):
             result_bgr, mask_out, err = fn(img_bgr, mask_dir, params, mask_b64=mask_b64)
         else:

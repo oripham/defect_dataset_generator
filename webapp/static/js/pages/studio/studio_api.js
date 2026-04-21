@@ -33,13 +33,18 @@ async function runAutoMask() {
 
 async function runPreview() {
   if (!okImageB64) { alert("Upload an OK image first. / OK\u54c1\u753b\u50cf\u3092\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u3057\u3066\u304f\u3060\u3055\u3044\u3002"); return; }
+  const defectKey = document.getElementById("sel-defect").value;
+  const isAi = document.getElementById("chk-use-ai").checked;
+  if (currentGroup === "cap" && defectKey === "plastic_flow" && isAi && !ngRefB64) {
+    alert("Plastic Flow + AI requires an NG reference image.\nUpload an NG image with visible defect texture.\n\n樹脂流れ + AI にはNG参照画像が必要です。");
+    return;
+  }
   const btnEl = document.getElementById("btn-preview");
   btnEl.disabled = true;
   btnEl.textContent = "\u23f3 Generating\u2026 / \u751f\u6210\u4e2d\u2026";
   log("Running preview\u2026");
 
   const grp = GROUPS[currentGroup];
-  const defectKey = document.getElementById("sel-defect").value;
   console.log("[JS] runPreview started", { group: currentGroup, defectKey });
   const entry = grp.defects.find(d => d.key === defectKey) || {};
   const api = grp.api;
@@ -87,7 +92,7 @@ async function runPreview() {
     const evPl = document.getElementById("eval-placeholder");
     if (evPl) evPl.style.display = "none";
     const evPa = document.getElementById("eval-panel");
-    if (evPa) evPa.style.display = "flex";
+    if (evPa) { evPa.classList.remove("d-none"); evPa.classList.add("d-flex"); }
     const evSt = document.getElementById("eval-status");
     if (evSt) evSt.textContent = "";
     const frW = document.getElementById("fail-reasons-wrap");
@@ -212,7 +217,7 @@ async function evaluateResult(status) {
   if (btnSubmit) btnSubmit.disabled = true;
 
   const statusEl = document.getElementById("eval-status");
-  if (statusEl) statusEl.innerHTML = "Saving... \u23f3";
+  if (statusEl) statusEl.innerHTML = "Saving... / \u4fdd\u5b58\u4e2d... \u23f3";
 
   try {
     const defectKey = document.getElementById("sel-defect").value;
@@ -240,13 +245,13 @@ async function evaluateResult(status) {
     if (!resp.ok) throw new Error("Server error " + resp.status);
     const data = await resp.json();
 
-    document.getElementById("eval-status").innerHTML = `<span class="text-success">\u2705 Saved to database</span>`;
+    document.getElementById("eval-status").innerHTML = `<span class="text-success">\u2705 Saved to database / DB\u4fdd\u5b58\u5b8c\u4e86</span>`;
     if (status === 'failed') {
       document.getElementById("fail-reasons-wrap").style.display = "none";
     }
   } catch (e) {
     log("Evaluation error: " + e);
-    document.getElementById("eval-status").innerHTML = `<span class="text-danger">\u274c Failed to save</span>`;
+    document.getElementById("eval-status").innerHTML = `<span class="text-danger">\u274c Failed to save / \u4fdd\u5b58\u5931\u6557</span>`;
     btnSuccess.disabled = false;
     btnFailed.disabled = false;
     if (btnSubmit) btnSubmit.disabled = false;

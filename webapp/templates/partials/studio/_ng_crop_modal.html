@@ -1,0 +1,315 @@
+<!-- NG Crop Modal — Roboflow-style zoom + pan + rectangle select -->
+<div id="ng-crop-modal" class="position-fixed top-0 start-0 w-100 h-100 d-none"
+     style="z-index:9999;background:rgba(0,0,0,0.92)">
+
+  <!-- Top toolbar -->
+  <div class="d-flex align-items-center gap-2 px-3 py-2"
+       style="background:#161b22;border-bottom:1px solid #30363d">
+    <span class="fw-bold text-success">Crop NG Reference / NG参照切り抜き</span>
+    <span class="text-muted small ms-2">Scroll=Zoom, Right-drag=Pan, Left-drag=Select Region / スクロール=ズーム, 右ドラッグ=パン, 左ドラッグ=範囲選択</span>
+    <span class="ms-auto"></span>
+    <span id="nc-zoom-lbl" class="small text-warning" style="min-width:40px">1.0x</span>
+    <button class="btn btn-sm btn-outline-secondary px-1 py-0" onclick="_ncZoomTo(1)"
+            style="font-size:11px">Fit / 全体</button>
+    <span class="text-muted mx-1">|</span>
+    <button class="btn btn-sm btn-outline-danger px-2 py-0" onclick="_ncClearRect()"
+            style="font-size:12px">Clear / クリア</button>
+    <button class="btn btn-sm btn-success px-3 py-0 fw-bold" onclick="_ncConfirm()"
+            style="font-size:12px">Use Crop / 切り抜き使用</button>
+    <button class="btn btn-sm btn-outline-secondary px-2 py-0" onclick="_ncClose()"
+            style="font-size:12px">Cancel / 取消</button>
+  </div>
+
+  <!-- Canvas area -->
+  <div id="nc-canvas-wrap" class="position-relative" style="width:100%;height:calc(100% - 44px);overflow:hidden">
+    <canvas id="nc-canvas" style="position:absolute;top:0;left:0;cursor:crosshair"></canvas>
+  </div>
+</div>
+
+<script>
+(function() {
+  let _ncImg = null;
+  let _ncZoom = 1;
+  let _ncViewX = 0, _ncViewY = 0;
+  let _ncW = 0, _ncH = 0;
+  let _ncImgW = 0, _ncImgH = 0;
+  let _ncPanning = false, _ncLastPan = null;
+  let _ncSelecting = false;
+  let _ncRect = null;       // {sx,sy,ex,ey} in image coords
+  let _ncStartPt = null;    // [imgX,imgY]
+  let _ncSpaceHeld = false;
+  let _ncBound = false;
+
+  window._ngCropOpen = function() {
+    if (!_ngFullImg) { alert("Upload an NG image first.\nNG画像をアップロードしてください。"); return; }
+    const modal = document.getElementById("ng-crop-modal");
+    document.body.appendChild(modal);
+    modal.classList.remove("d-none");
+
+    _ncImg = _ngFullImg;
+    _ncImgW = _ncImg.width;
+    _ncImgH = _ncImg.height;
+    _ncZoom = 1;
+    _ncViewX = 0;
+    _ncViewY = 0;
+    _ncRect = null;
+
+    requestAnimationFrame(() => {
+      _ncResize();
+      _ncRender();
+      _ncBindEvents();
+    });
+  };
+
+  function _ncClose() {
+    document.getElementById("ng-crop-modal").classList.add("d-none");
+    _ncUnbindEvents();
+  }
+  window._ncClose = _ncClose;
+
+  function _ncResize() {
+    const wrap = document.getElementById("nc-canvas-wrap");
+    const cv = document.getElementById("nc-canvas");
+    _ncW = wrap.clientWidth;
+    _ncH = wrap.clientHeight;
+    cv.width = _ncW;
+    cv.height = _ncH;
+    _ncClampView();
+  }
+
+  function _ncGetTransform() {
+    const viewW = _ncImgW / _ncZoom;
+    const viewH = _ncImgH / _ncZoom;
+    const scaleX = _ncW / viewW;
+    const scaleY = _ncH / viewH;
+    const scale = Math.min(scaleX, scaleY);
+    const drawW = viewW * scale;
+    const drawH = viewH * scale;
+    const offX = (_ncW - drawW) / 2;
+    const offY = (_ncH - drawH) / 2;
+    return { scale, drawW, drawH, offX, offY, viewW, viewH };
+  }
+
+  function _ncS2I(sx, sy) {
+    const t = _ncGetTransform();
+    const ix = _ncViewX + (sx - t.offX) / t.scale;
+    const iy = _ncViewY + (sy - t.offY) / t.scale;
+    return [ix, iy];
+  }
+
+  function _ncI2S(ix, iy) {
+    const t = _ncGetTransform();
+    const sx = (ix - _ncViewX) * t.scale + t.offX;
+    const sy = (iy - _ncViewY) * t.scale + t.offY;
+    return [sx, sy];
+  }
+
+  function _ncClampView() {
+    const viewW = _ncImgW / _ncZoom;
+    const viewH = _ncImgH / _ncZoom;
+    _ncViewX = Math.max(0, Math.min(_ncImgW - viewW, _ncViewX));
+    _ncViewY = Math.max(0, Math.min(_ncImgH - viewH, _ncViewY));
+  }
+
+  function _ncRender() {
+    const cv = document.getElementById("nc-canvas");
+    const ctx = cv.getContext("2d");
+    ctx.fillStyle = "#0d1117";
+    ctx.fillRect(0, 0, _ncW, _ncH);
+
+    if (!_ncImg) return;
+
+    const t = _ncGetTransform();
+    ctx.drawImage(_ncImg,
+      _ncViewX, _ncViewY, t.viewW, t.viewH,
+      t.offX, t.offY, t.drawW, t.drawH);
+
+    // Draw selection rectangle
+    if (_ncRect) {
+      const [sx1, sy1] = _ncI2S(_ncRect.sx, _ncRect.sy);
+      const [sx2, sy2] = _ncI2S(_ncRect.ex, _ncRect.ey);
+      const rx = Math.min(sx1, sx2);
+      const ry = Math.min(sy1, sy2);
+      const rw = Math.abs(sx2 - sx1);
+      const rh = Math.abs(sy2 - sy1);
+
+      // Dim outside selection
+      ctx.fillStyle = "rgba(0,0,0,0.5)";
+      ctx.fillRect(t.offX, t.offY, t.drawW, ry - t.offY);
+      ctx.fillRect(t.offX, ry + rh, t.drawW, (t.offY + t.drawH) - (ry + rh));
+      ctx.fillRect(t.offX, ry, rx - t.offX, rh);
+      ctx.fillRect(rx + rw, ry, (t.offX + t.drawW) - (rx + rw), rh);
+
+      // Selection border
+      ctx.strokeStyle = "#00ff88";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 3]);
+      ctx.strokeRect(rx, ry, rw, rh);
+      ctx.setLineDash([]);
+
+      // Size label
+      const cw = Math.round(Math.abs(_ncRect.ex - _ncRect.sx));
+      const ch = Math.round(Math.abs(_ncRect.ey - _ncRect.sy));
+      ctx.fillStyle = "rgba(0,0,0,0.7)";
+      ctx.fillRect(rx, ry - 18, 80, 16);
+      ctx.fillStyle = "#00ff88";
+      ctx.font = "11px monospace";
+      ctx.fillText(cw + "x" + ch + "px", rx + 3, ry - 6);
+    }
+
+    document.getElementById("nc-zoom-lbl").textContent = _ncZoom.toFixed(1) + "x";
+  }
+
+  window._ncZoomTo = function(z) {
+    const cx = _ncW / 2, cy = _ncH / 2;
+    const [ix, iy] = _ncS2I(cx, cy);
+    _ncZoom = Math.max(0.5, Math.min(20, z));
+    _ncViewX = ix - (_ncImgW / _ncZoom) / 2;
+    _ncViewY = iy - (_ncImgH / _ncZoom) / 2;
+    _ncClampView();
+    _ncRender();
+  };
+
+  function _ncZoomAt(sx, sy, delta) {
+    const [ix, iy] = _ncS2I(sx, sy);
+    const factor = delta > 0 ? 1.18 : 0.85;
+    _ncZoom = Math.max(0.5, Math.min(20, _ncZoom / factor));
+    const t = _ncGetTransform();
+    _ncViewX = ix - (sx - t.offX) / t.scale;
+    _ncViewY = iy - (sy - t.offY) / t.scale;
+    _ncClampView();
+    _ncRender();
+  }
+
+  window._ncClearRect = function() {
+    _ncRect = null;
+    _ncRender();
+  };
+
+  window._ncConfirm = function() {
+    if (!_ncRect || !_ncImg) { alert("Draw a rectangle over the defect region first.\n欠陥領域に矩形を描画してください。"); return; }
+
+    const x = Math.max(0, Math.round(Math.min(_ncRect.sx, _ncRect.ex)));
+    const y = Math.max(0, Math.round(Math.min(_ncRect.sy, _ncRect.ey)));
+    const w = Math.min(_ncImgW - x, Math.round(Math.abs(_ncRect.ex - _ncRect.sx)));
+    const h = Math.min(_ncImgH - y, Math.round(Math.abs(_ncRect.ey - _ncRect.sy)));
+
+    if (w < 10 || h < 10) { alert("Selection too small. Draw a larger rectangle.\n選択が小さすぎます。大きい矩形を描画してください。"); return; }
+
+    // Crop from NG image
+    const cropCv = document.createElement("canvas");
+    cropCv.width = w;
+    cropCv.height = h;
+    const cropCtx = cropCv.getContext("2d");
+    cropCtx.drawImage(_ncImg, x, y, w, h, 0, 0, w, h);
+
+    ngRefB64 = cropCv.toDataURL("image/png").split(",")[1];
+
+    // Update thumbnail and info
+    const thumb = document.getElementById("thumb-ng-ref");
+    thumb.src = cropCv.toDataURL("image/png");
+    const dimEl = document.getElementById("ng-ref-dim");
+    if (dimEl) dimEl.textContent = w + "\u00d7" + h + " crop";
+
+    if (window.log) window.log("NG ref cropped / NG\u53c2\u7167\u5207\u308a\u629c\u304d: " + w + "x" + h);
+    _ncClose();
+  };
+
+  // ── Events ──
+  function _ncBindEvents() {
+    if (_ncBound) return;
+    _ncBound = true;
+    const cv = document.getElementById("nc-canvas");
+    cv.addEventListener("mousedown", _ncOnDown);
+    cv.addEventListener("mousemove", _ncOnMove);
+    cv.addEventListener("mouseup", _ncOnUp);
+    cv.addEventListener("mouseleave", _ncOnUp);
+    cv.addEventListener("wheel", _ncOnWheel, { passive: false });
+    cv.addEventListener("contextmenu", e => e.preventDefault());
+    window.addEventListener("resize", _ncOnResize);
+    window.addEventListener("keydown", _ncOnKey);
+    window.addEventListener("keyup", _ncOnKeyUp);
+  }
+
+  function _ncUnbindEvents() {
+    _ncBound = false;
+    const cv = document.getElementById("nc-canvas");
+    cv.removeEventListener("mousedown", _ncOnDown);
+    cv.removeEventListener("mousemove", _ncOnMove);
+    cv.removeEventListener("mouseup", _ncOnUp);
+    cv.removeEventListener("mouseleave", _ncOnUp);
+    cv.removeEventListener("wheel", _ncOnWheel);
+    window.removeEventListener("resize", _ncOnResize);
+    window.removeEventListener("keydown", _ncOnKey);
+    window.removeEventListener("keyup", _ncOnKeyUp);
+  }
+
+  function _ncOnKey(e) {
+    if (e.code === "Space") { _ncSpaceHeld = true; e.preventDefault(); }
+    if (e.code === "Escape") _ncClose();
+  }
+  function _ncOnKeyUp(e) {
+    if (e.code === "Space") _ncSpaceHeld = false;
+  }
+
+  function _ncOnDown(e) {
+    e.preventDefault();
+    const r = e.target.getBoundingClientRect();
+    const sx = e.clientX - r.left;
+    const sy = e.clientY - r.top;
+
+    if (e.button === 2 || e.button === 1 || _ncSpaceHeld) {
+      _ncPanning = true;
+      _ncLastPan = [e.clientX, e.clientY];
+    } else if (e.button === 0) {
+      _ncSelecting = true;
+      const [ix, iy] = _ncS2I(sx, sy);
+      _ncStartPt = [ix, iy];
+      _ncRect = { sx: ix, sy: iy, ex: ix, ey: iy };
+    }
+  }
+
+  function _ncOnMove(e) {
+    const r = e.target.getBoundingClientRect();
+    const sx = e.clientX - r.left;
+    const sy = e.clientY - r.top;
+
+    if (_ncPanning && _ncLastPan) {
+      const t = _ncGetTransform();
+      const dx = (e.clientX - _ncLastPan[0]) / t.scale;
+      const dy = (e.clientY - _ncLastPan[1]) / t.scale;
+      _ncViewX -= dx;
+      _ncViewY -= dy;
+      _ncLastPan = [e.clientX, e.clientY];
+      _ncClampView();
+    } else if (_ncSelecting && _ncStartPt) {
+      const [ix, iy] = _ncS2I(sx, sy);
+      _ncRect = {
+        sx: _ncStartPt[0], sy: _ncStartPt[1],
+        ex: Math.max(0, Math.min(_ncImgW, ix)),
+        ey: Math.max(0, Math.min(_ncImgH, iy))
+      };
+    }
+    _ncRender();
+  }
+
+  function _ncOnUp(e) {
+    _ncSelecting = false;
+    _ncPanning = false;
+    _ncLastPan = null;
+    _ncStartPt = null;
+  }
+
+  function _ncOnWheel(e) {
+    e.preventDefault();
+    const r = e.target.getBoundingClientRect();
+    _ncZoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY);
+  }
+
+  function _ncOnResize() {
+    _ncResize();
+    _ncRender();
+  }
+
+})();
+</script>

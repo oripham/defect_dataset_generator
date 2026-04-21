@@ -111,6 +111,7 @@ def _run_scratch(img_bgr: np.ndarray, mask_dir: str, params: dict):
     alpha_mult  = float(params.get("alpha_mult", 1.35))
     whiten_add  = float(params.get("whiten_add", 120))
     mode        = str(params.get("mode", "auto"))
+    size        = float(params.get("scratch_size", 1.0))
 
     # Prefer user-drawn mask from params, fall back to mask_dir
     mask_b64_user = params.get("mask_b64") or params.get("user_mask_b64")
@@ -132,7 +133,7 @@ def _run_scratch(img_bgr: np.ndarray, mask_dir: str, params: dict):
     result = _exp.synth_plastic_scuff(result, mask, seed=seed,
                                        alpha_mult=alpha_mult,
                                        whiten_add=whiten_add,
-                                       mode=mode)
+                                       mode=mode, size=size)
     return result, mask, None
 
 
