@@ -92,6 +92,27 @@ def _b64_to_bgr(b64: str) -> np.ndarray:
     return cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
 
+def _write_yolo_label(label_path: Path, mask_gray, img_shape, class_id=0):
+    """Write YOLO bbox label from mask. Format: class_id cx cy w h (normalized)."""
+    h, w = img_shape[:2]
+    if mask_gray is None or mask_gray.size == 0:
+        label_path.write_text("")
+        return
+    _, binary = cv2.threshold(mask_gray, 127, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    lines = []
+    for cnt in contours:
+        x, y, bw, bh = cv2.boundingRect(cnt)
+        if bw < 3 or bh < 3:
+            continue
+        cx = (x + bw / 2) / w
+        cy = (y + bh / 2) / h
+        nw = bw / w
+        nh = bh / h
+        lines.append(f"{class_id} {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f}")
+    label_path.write_text("\n".join(lines))
+
+
 def _make_debug_panel(ok_bgr, mask_gray, result_bgr, panel_h=240) -> np.ndarray:
     diff = cv2.absdiff(ok_bgr, result_bgr)
     diff_bright = cv2.convertScaleAbs(diff, alpha=4.0)
@@ -305,7 +326,12 @@ def _batch_worker(job_id: str, payload: dict):
     from datetime import datetime
 
     out_dir = RESULTS_ROOT / datetime.now().strftime("%Y%m%d_%H%M%S") / product / defect_type
-    out_dir.mkdir(parents=True, exist_ok=True)
+    img_dir = out_dir / "images"
+    lbl_dir = out_dir / "labels"
+    dbg_dir = out_dir / "debug"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    lbl_dir.mkdir(parents=True, exist_ok=True)
+    dbg_dir.mkdir(parents=True, exist_ok=True)
 
     generated = 0
     errors    = 0
@@ -322,40 +348,62 @@ def _batch_worker(job_id: str, payload: dict):
         img_b64 = base64.b64encode(buf).decode("utf-8")
 
         params = dict(params_base)
-        params.setdefault("seed", i * 7 + 42)
+        params["seed"] = int(params_base.get("seed", 42)) + i * 7
+        if mask_b64:
+            params["mask_b64"] = mask_b64
+        if ref_b64:
+            params["ref_image_b64"] = ref_b64
 
-        result = _engine_post("/api/cap/preview", {
-            "image_b64": img_b64, "product": product,
-            "defect_type": defect_type, "params": params,
-            "mask_b64": mask_b64,
-            "ref_image_b64": ref_b64,
-        })
-        if result.get("_fallback") and _HAS_LOCAL_CAP:
-            result = _cap_generate_local(
-                base_image_b64=img_b64,
-                defect_type=defect_type,
-                params=params,
-                data_root=data_root,
-                mask_b64=mask_b64,
-            )
+        try:
+            result = _engine_post("/api/cap/preview", {
+                "image_b64": img_b64, "product": product,
+                "defect_type": defect_type, "params": params,
+                "mask_b64": mask_b64,
+                "ref_image_b64": ref_b64,
+            })
+            if result.get("_fallback") and _HAS_LOCAL_CAP:
+                result = _cap_generate_local(
+                    base_image_b64=img_b64,
+                    defect_type=defect_type,
+                    params=params,
+                    data_root=data_root,
+                )
+        except Exception as exc:
+            print(f"[batch] image {i} error: {exc}")
+            errors += 1
+            with _cap_batch_lock:
+                _cap_batch_jobs[job_id].update(
+                    generated=generated, errors=errors, total=n_images,
+                    progress=int((generated + errors) / n_images * 100),
+                )
+            continue
 
         if "error" in result:
             errors += 1
         else:
-            fname   = f"{defect_type}_s{params['seed']}_{ok_path.stem}.png"
+            fname_stem = f"{defect_type}_{i:03d}_s{params['seed']}_{ok_path.stem}"
+            fname      = fname_stem + ".png"
             res_bgr = _b64_to_bgr(result["result_image"])
-            cv2.imwrite(str(out_dir / fname), res_bgr)
+            cv2.imwrite(str(img_dir / fname), res_bgr)
 
-            # Debug panel
+            # YOLO label from mask
+            mask_gray = None
             try:
                 mask_b64_used = result.get("mask_b64", "")
                 if mask_b64_used:
                     mask_data = base64.b64decode(mask_b64_used)
                     mask_gray = cv2.imdecode(np.frombuffer(mask_data, np.uint8), cv2.IMREAD_GRAYSCALE)
-                else:
+                _write_yolo_label(lbl_dir / (fname_stem + ".txt"),
+                                  mask_gray, res_bgr.shape[:2], class_id=0)
+            except Exception:
+                pass
+
+            # Debug panel
+            try:
+                if mask_gray is None:
                     mask_gray = np.zeros(ok_bgr.shape[:2], np.uint8)
                 panel = _make_debug_panel(ok_bgr, mask_gray, res_bgr)
-                cv2.imwrite(str(out_dir / f"debug_{fname}"), panel)
+                cv2.imwrite(str(dbg_dir / f"debug_{fname}"), panel)
             except Exception:
                 pass
 
@@ -410,8 +458,12 @@ def api_cap_batch_download(job_id):
         return jsonify(error="output directory not found"), 404
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for f in sorted(out_dir.glob("*.png")):
-            zf.write(f, f.name)
+        for sub in ("images", "labels", "debug"):
+            sub_dir = out_dir / sub
+            if sub_dir.is_dir():
+                for f in sorted(sub_dir.iterdir()):
+                    if f.is_file():
+                        zf.write(f, f"{sub}/{f.name}")
     buf.seek(0)
     from flask import send_file
     return send_file(buf, mimetype="application/zip",
