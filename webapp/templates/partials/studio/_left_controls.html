@@ -69,9 +69,16 @@
 
           <!-- Draw Mask button — ABOVE NG ref -->
           <div id="mc-mask-draw-wrap" class="mb-2 d-none">
-            <button class="btn btn-sm btn-info w-100 py-1 fw-bold" style="font-size:12px" onclick="_meOpen()">
-              Draw Mask (Zoom + Draw) / マスク描画
-            </button>
+            <div class="d-flex gap-1 mb-1">
+              <button class="btn btn-sm btn-info flex-grow-1 py-1 fw-bold" style="font-size:12px" onclick="_meOpen()">
+                Draw Mask / マスク描画
+              </button>
+              <label class="btn btn-sm btn-outline-info py-1 fw-bold mb-0" style="font-size:12px;cursor:pointer">
+                Upload / 読込
+                <input type="file" id="upload-mask" accept="image/*" style="display:none"
+                  onchange="onUploadMask(this)">
+              </label>
+            </div>
             <div id="mc-mask-panel" class="mt-1 d-none">
               <canvas id="mc-mask-canvas" style="display:none"></canvas>
               <div id="mc-rim-offset-wrap" class="d-none">

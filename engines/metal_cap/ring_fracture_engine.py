@@ -243,8 +243,7 @@ def _sdxl_step(cv_res_rgb, m_res_gray, ref_rgb, seed, prompt=None, negative_prom
         pipe.set_ip_adapter_scale(_IP_SCALE)
 
         with torch.inference_mode():
-            pipe.to("cuda" if __import__("torch").cuda.is_available() else "cpu")
-            ai_res = pipe(
+            result = pipe(
                 prompt=prompt or _PROMPT,
                 negative_prompt=negative_prompt or _NEG,
                 image=cv_low,
@@ -255,16 +254,22 @@ def _sdxl_step(cv_res_rgb, m_res_gray, ref_rgb, seed, prompt=None, negative_prom
                 num_inference_steps=_STEPS,
                 guidance_scale=_GUIDANCE,
                 generator=torch.manual_seed(seed),
-            ).images[0]
+            )
+            ai_res = result.images[0]
+            del result
 
-        # Notebook: ai_res.convert('L').resize(good_image.size)
-        final_gray = ai_res.convert("L").resize(orig_hw, _PIL.LANCZOS)
-        final      = final_gray.convert("RGB")
-
-        torch.cuda.empty_cache()
+        del cv_low, m_low, d_low, ip_image
         gc.collect()
+        torch.cuda.empty_cache()
 
-    return np.array(final)
+        final_gray = ai_res.convert("L").resize(orig_hw, _PIL.LANCZOS)
+        final_rgb  = np.array(final_gray.convert("RGB"))
+        del ai_res, final_gray
+
+        gc.collect()
+        torch.cuda.empty_cache()
+
+    return final_rgb
 
 
 # ── Public generate() ─────────────────────────────────────────────────────────

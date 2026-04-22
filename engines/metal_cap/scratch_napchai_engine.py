@@ -456,8 +456,7 @@ def _sdxl_step(cv_res_rgb, mask_gray, ref_rgb, seed, prompt=None, negative_promp
         pipe.set_ip_adapter_scale(ip_scale)
 
         with torch.inference_mode():
-            pipe.to("cuda" if torch.cuda.is_available() else "cpu")
-            ai_res_low = pipe(
+            result = pipe(
                 prompt=prompt or _PROMPT,
                 negative_prompt=negative_prompt or _NEG,
                 image=cv_pil,
@@ -469,14 +468,22 @@ def _sdxl_step(cv_res_rgb, mask_gray, ref_rgb, seed, prompt=None, negative_promp
                 guidance_scale=_GUIDANCE,
                 strength=_STRENGTH,
                 generator=torch.manual_seed(seed),
-            ).images[0]
+            )
+            ai_res_low = result.images[0]
+            del result
+
+        del cv_pil, mask_pil, depth_pil, ip_image
+        gc.collect()
+        torch.cuda.empty_cache()
 
         final = ai_res_low.resize(orig_hw, _PIL.LANCZOS)
+        final_rgb = np.array(final.convert("RGB"))
+        del ai_res_low, final
 
-        torch.cuda.empty_cache()
         gc.collect()
+        torch.cuda.empty_cache()
 
-    return np.array(final.convert("RGB"))
+    return final_rgb
 
 
 # ── FLUX refine step (disabled) ──────────────────────────────────────────────

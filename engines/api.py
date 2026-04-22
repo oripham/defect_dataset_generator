@@ -96,21 +96,23 @@ app.add_middleware(
 #     print("\n" + "="*60)
 #     print("🚀 [STARTUP] Warming up AI Engines...")
 #     print("="*60)
-#     
+#
 #     # 1. Load the shared Napchai (Metal Cap) models into VRAM
 #     try:
 #         # This takes 100-300s on the first run (download) or 30-60s on subsequent runs (VRAM load)
 #         _preload_napchai()
 #         print("✅ [STARTUP] AI Models (SDXL/CN/IPA) ready in VRAM.")
 #     except Exception as e:
+#         import traceback
 #         print(f"❌ [STARTUP] Failed to preload models: {e}")
-# 
+#         traceback.print_exc()
+#
 #     # 2. Pre-import engine modules to warm up python cache
 #     print("📦 [STARTUP] Indexing defect engines...")
 #     _load_mc_deform()
 #     _load_ring_fracture()
 #     _load_scratch_napchai()
-#     
+#
 #     print("="*60)
 #     print("🌟 [STARTUP] BACKEND IS FULLY READY")
 #     print("="*60 + "\n")

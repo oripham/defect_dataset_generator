@@ -187,6 +187,40 @@ function clearNgRef() {
   document.getElementById("ng-ref-loaded").style.display = "none";
 }
 
+function onUploadMask(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => {
+      const cv = document.createElement("canvas");
+      cv.width = img.width;
+      cv.height = img.height;
+      const ctx = cv.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      const id = ctx.getImageData(0, 0, cv.width, cv.height);
+      const d = id.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const v = (d[i] + d[i+1] + d[i+2]) / 3 > 50 ? 255 : 0;
+        d[i] = d[i+1] = d[i+2] = v;
+        d[i+3] = 255;
+      }
+      ctx.putImageData(id, 0, 0);
+      maskB64 = cv.toDataURL("image/png").split(",")[1];
+      showPanel("panel-mask", maskB64);
+      const panel = document.getElementById("mc-mask-panel");
+      if (panel) panel.classList.remove("d-none");
+      const hint = document.getElementById("mc-mask-hint");
+      if (hint) hint.innerHTML = "<b class='text-success'>MASK LOADED / マスク読込済</b> — " + file.name;
+      log("Mask loaded / マスク読込: " + file.name + " (" + img.width + "×" + img.height + ")");
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  input.value = "";
+}
+
 function onUploadBatchFiles(input) {
   batchImagePool = [];
   const files = Array.from(input.files);
