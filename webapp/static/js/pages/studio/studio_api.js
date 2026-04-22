@@ -43,6 +43,8 @@ async function runPreview() {
   btnEl.disabled = true;
   btnEl.textContent = "\u23f3 Generating\u2026 / \u751f\u6210\u4e2d\u2026";
   log("Running preview\u2026");
+  var _ldr = document.getElementById("result-loader");
+  if (_ldr) _ldr.style.display = "";
 
   const grp = GROUPS[currentGroup];
   console.log("[JS] runPreview started", { group: currentGroup, defectKey });
@@ -105,6 +107,8 @@ async function runPreview() {
     log("Preview error: " + e);
   } finally {
     btnEl.disabled = false;
+    var _ldr2 = document.getElementById("result-loader");
+    if (_ldr2) _ldr2.style.display = "none";
     btnEl.textContent = "\u25b6 Preview / \u30d7\u30ec\u30d3\u30e5\u30fc";
   }
 }

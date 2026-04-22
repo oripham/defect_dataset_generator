@@ -416,7 +416,7 @@ def _cv_step(img_rgb: np.ndarray, params: dict):
 
 # ── SDXL refine step — pipeline_scratch cell-10 ──────────────────────────────
 
-def _sdxl_step(cv_res_rgb, mask_gray, ref_rgb, seed, prompt=None, negative_prompt=None):
+def _sdxl_step(cv_res_rgb, mask_gray, ref_rgb, seed, prompt=None, negative_prompt=None, params=None):
     """
     Returns final_rgb (same HW as cv_res_rgb).
     Matches the simple calling structure of mc_deform_engine.py
@@ -453,7 +453,17 @@ def _sdxl_step(cv_res_rgb, mask_gray, ref_rgb, seed, prompt=None, negative_promp
             ip_image = cv_pil.resize((224, 224))
             ip_scale = 0.5
 
+        _p = params or {}
+        ip_scale = float(_p.get("ip_scale", ip_scale))
+        s_strength = float(_p.get("strength", _STRENGTH))
+        s_guidance = float(_p.get("guidance_scale", _GUIDANCE))
+        s_steps = int(_p.get("steps", _STEPS))
+        s_cn_scale = float(_p.get("controlnet_scale", _CN_SCALE))
+
         pipe.set_ip_adapter_scale(ip_scale)
+
+        print(f"[scratch_napchai] SDXL inpaint: strength={s_strength}, guidance={s_guidance}, "
+              f"steps={s_steps}, ip_scale={ip_scale}, cn_scale={s_cn_scale}")
 
         with torch.inference_mode():
             result = pipe(
@@ -463,10 +473,10 @@ def _sdxl_step(cv_res_rgb, mask_gray, ref_rgb, seed, prompt=None, negative_promp
                 mask_image=mask_pil,
                 control_image=depth_pil,
                 ip_adapter_image=ip_image,
-                controlnet_conditioning_scale=_CN_SCALE,
-                num_inference_steps=_STEPS,
-                guidance_scale=_GUIDANCE,
-                strength=_STRENGTH,
+                controlnet_conditioning_scale=s_cn_scale,
+                num_inference_steps=s_steps,
+                guidance_scale=s_guidance,
+                strength=s_strength,
                 generator=torch.manual_seed(seed),
             )
             ai_res_low = result.images[0]
@@ -588,7 +598,8 @@ def generate(base_image_b64: str, params: dict, mask_b64: str | None = None) -> 
         try:
             final_rgb  = _sdxl_step(cv_res, mask_res, ref_rgb, seed,
                                      prompt=params.get("prompt"),
-                                     negative_prompt=params.get("negative_prompt"))
+                                     negative_prompt=params.get("negative_prompt"),
+                                     params=params)
             result_b64 = encode_b64(final_rgb)
             engine     = "cv+sdxl"
         except Exception as e:

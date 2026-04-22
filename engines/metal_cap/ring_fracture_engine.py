@@ -204,7 +204,7 @@ def _cv_step(img_rgb: np.ndarray, params: dict):
 
 # ── SDXL refine step — pipeline_ring cell-8 ──────────────────────────────────
 
-def _sdxl_step(cv_res_rgb, m_res_gray, ref_rgb, seed, prompt=None, negative_prompt=None):
+def _sdxl_step(cv_res_rgb, m_res_gray, ref_rgb, seed, prompt=None, negative_prompt=None, params=None):
     """
     Returns final_rgb (same HW as cv_res_rgb).
     Notebook: ai_res.convert('L').resize(good_image.size)
@@ -240,7 +240,16 @@ def _sdxl_step(cv_res_rgb, m_res_gray, ref_rgb, seed, prompt=None, negative_prom
         else:
             ip_image = cv_low.resize((224, 224))
 
-        pipe.set_ip_adapter_scale(_IP_SCALE)
+        _p = params or {}
+        ip_scale = float(_p.get("ip_scale", _IP_SCALE))
+        s_strength = float(_p.get("strength", _STRENGTH))
+        s_guidance = float(_p.get("guidance_scale", _GUIDANCE))
+        s_steps = int(_p.get("steps", _STEPS))
+
+        pipe.set_ip_adapter_scale(ip_scale)
+
+        print(f"[ring_fracture] SDXL inpaint: strength={s_strength}, guidance={s_guidance}, "
+              f"steps={s_steps}, ip_scale={ip_scale}")
 
         with torch.inference_mode():
             result = pipe(
@@ -250,9 +259,9 @@ def _sdxl_step(cv_res_rgb, m_res_gray, ref_rgb, seed, prompt=None, negative_prom
                 mask_image=m_low,
                 control_image=d_low,
                 ip_adapter_image=ip_image,
-                strength=_STRENGTH,
-                num_inference_steps=_STEPS,
-                guidance_scale=_GUIDANCE,
+                strength=s_strength,
+                num_inference_steps=s_steps,
+                guidance_scale=s_guidance,
                 generator=torch.manual_seed(seed),
             )
             ai_res = result.images[0]
@@ -309,7 +318,8 @@ def generate(base_image_b64: str, params: dict, mask_b64: str | None = None) -> 
         try:
             final_rgb  = _sdxl_step(cv_res, m_res, ref_rgb, seed,
                                      prompt=params.get("prompt"),
-                                     negative_prompt=params.get("negative_prompt"))
+                                     negative_prompt=params.get("negative_prompt"),
+                                     params=params)
             result_b64 = encode_b64(final_rgb)
             engine     = "cv+sdxl"
         except Exception as e:

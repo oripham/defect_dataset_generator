@@ -17,6 +17,33 @@ function resetPromptDefaults() {
   const dp = getDefaultPrompt();
   document.getElementById("txt-prompt").value = dp.pos;
   document.getElementById("txt-neg-prompt").value = dp.neg;
+  resetSdxlDefaults();
+}
+
+function _setSdxlSlider(id, val) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.value = val;
+  el.dispatchEvent(new Event("input"));
+}
+
+function resetSdxlDefaults() {
+  const defectKey = document.getElementById("sel-defect").value;
+  const key = currentGroup + "|" + defectKey;
+  const SDXL_DEFAULTS = {
+    "cap|plastic_flow":       { strength: 0.92, guidance: 10.0, steps: 25, ip: 1.0,  cn: 0.15 },
+    "cap|scratch":            { strength: 0.85, guidance: 8.0,  steps: 30, ip: 0.8,  cn: 0.20 },
+    "cap|dent":               { strength: 0.85, guidance: 8.0,  steps: 30, ip: 0.8,  cn: 0.20 },
+    "metal_cap|scratch":      { strength: 0.45, guidance: 8.0,  steps: 35, ip: 0.8,  cn: 0.20 },
+    "metal_cap|ring_fracture":{ strength: 0.08, guidance: 15.0, steps: 20, ip: 1.0,  cn: 0.20 },
+    "metal_cap|mc_deform":    { strength: 0.98, guidance: 12.0, steps: 30, ip: 1.0,  cn: 0.20 },
+  };
+  const d = SDXL_DEFAULTS[key] || { strength: 0.85, guidance: 8.0, steps: 25, ip: 0.8, cn: 0.20 };
+  _setSdxlSlider("slider-ai-strength", d.strength);
+  _setSdxlSlider("slider-ai-guidance", d.guidance);
+  _setSdxlSlider("slider-ai-steps", d.steps);
+  _setSdxlSlider("slider-ai-ipscale", d.ip);
+  _setSdxlSlider("slider-ai-cnscale", d.cn);
 }
 
 function selectGroup(group) {

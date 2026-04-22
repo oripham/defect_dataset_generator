@@ -158,7 +158,8 @@ def _run_plastic_flow(img_bgr: np.ndarray, _mask_dir: str, params: dict):
     else:
         mask = None
 
-    return result_bgr, mask, None
+    engine = out.get("engine", "cv")
+    return result_bgr, mask, None, engine
 
 
 def _run_thread(img_bgr: np.ndarray, mask_dir: str, params: dict, mask_b64: str | None = None):
@@ -258,13 +259,18 @@ def generate(
     normalized_folder = unicodedata.normalize('NFC', defect_folder)
     mask_dir = os.path.join(root, normalized_folder, "mask")
 
+    engine_name = "cv"
     try:
         if mask_b64:
             params["mask_b64"] = mask_b64
         if fn in (_run_scratch, _run_thread):
             result_bgr, mask_out, err = fn(img_bgr, mask_dir, params, mask_b64=mask_b64)
         else:
-            result_bgr, mask_out, err = fn(img_bgr, mask_dir, params)
+            res = fn(img_bgr, mask_dir, params)
+            if len(res) == 4:
+                result_bgr, mask_out, err, engine_name = res
+            else:
+                result_bgr, mask_out, err = res
     except Exception as e:
         return {"error": f"Synthesis error ({defect_type}): {e}"}
 
@@ -288,7 +294,7 @@ def generate(
     return {
         "result_image": encode_b64(result_rgb),
         "mask_b64":     mask_b64,
-        "engine":       "cv",
+        "engine":       engine_name,
         "qc":           {"verdict": "SKIP"},
         "metadata":     {"defect_type": defect_type, "params": params},
     }

@@ -15,8 +15,12 @@
               <img id="panel-mask" src="" class="img-fluid rounded border border-secondary"
                 style="min-height:140px;background:#111;width:100%;object-fit:contain">
             </div>
-            <div class="col-6">
+            <div class="col-6" style="position:relative">
               <div class="small text-muted mb-1">Result / 生成結果</div>
+              <div id="result-loader" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2;text-align:center">
+                <div class="spinner-border text-info" role="status" style="width:2.5rem;height:2.5rem"></div>
+                <div class="small text-info mt-1" id="result-loader-text">Generating…</div>
+              </div>
               <img id="panel-result" src="" class="img-fluid rounded border border-secondary"
                 style="min-height:140px;background:#111;width:100%;object-fit:contain">
             </div>

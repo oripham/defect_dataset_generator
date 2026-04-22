@@ -15,7 +15,7 @@
     <button id="me-btn-eraser" class="btn btn-sm btn-outline-secondary px-2 py-0" onclick="_meSetTool('eraser')"
             style="font-size:12px">Eraser / 消しゴム</button>
     <span class="text-muted small">Size / サイズ:</span>
-    <input type="range" id="me-brush-size" min="3" max="80" value="18" style="width:90px"
+    <input type="range" id="me-brush-size" min="3" max="300" value="40" style="width:90px"
            oninput="_meBrushSz=parseInt(this.value);document.getElementById('me-brush-lbl').textContent=this.value">
     <span id="me-brush-lbl" class="small text-info" style="min-width:20px">18</span>
 
@@ -47,7 +47,7 @@
   let _meZoom = 1;
   let _meViewX = 0;        // top-left in image coords
   let _meViewY = 0;
-  let _meBrushSz = 18;
+  let _meBrushSz = 40;
   let _meTool = 'brush';   // 'brush' | 'eraser'
   let _meDrawing = false;
   let _mePanning = false;
