@@ -223,13 +223,22 @@ def _sdxl_step(cv_res_rgb, m_res_gray, ref_rgb, seed, prompt=None, negative_prom
 
         cv_low  = _PIL.fromarray(cv_res_rgb).resize(_TARGET)
         m_low   = _PIL.fromarray(m_res_gray).resize(_TARGET)
-        d_low   = depth_est(cv_low)["depth"].convert("RGB").resize(_TARGET)
+        # Robust depth extraction
+        depth_out = depth_est(cv_low)
+        if isinstance(depth_out, dict):
+            depth_image = depth_out["depth"]
+        elif isinstance(depth_out, (list, tuple)):
+            depth_image = depth_out[0]
+        else:
+            depth_image = depth_out
+        d_low = depth_image.convert("RGB").resize(_TARGET)
+        # depth_est(cv_low)["depth"].convert("RGB").resize(_TARGET)
 
         # ip_image: ng_patch at (224, 224) or cv_low fallback
         if ref_rgb is not None:
             ip_image = _PIL.fromarray(ref_rgb).convert("RGB").resize((224, 224))
         else:
-            ip_image = cv_low
+            ip_image = cv_low.resize((224, 224))
 
         pipe.set_ip_adapter_scale(_IP_SCALE)
 

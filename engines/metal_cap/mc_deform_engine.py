@@ -98,30 +98,29 @@ def _jagged_warp(polar_img, max_radius, t_center, t_span, r_c, r_w,
     if custom_env is not None:
         env = custom_env
     else:
-        col_ring  = float(np.clip(r_c / max_radius * W, 1, W - 2))
-        rim_sigma = float(max(r_w / max_radius * W / 2.5, 3.0))
-        band_r    = np.exp(-0.5 * ((COL - col_ring) / (rim_sigma + 1e-6)) ** 2)
+        col_ring_p = float(np.clip(r_c / max_radius * W, 1, W - 2))
+        rim_sigma_p = float(max(r_w / max_radius * W / 2.5, 3.0))
+        band_r_p = np.exp(-0.5 * ((COL - col_ring_p) / (rim_sigma_p + 1e-6))**2)
 
-        row_center = (t_center % (2 * math.pi)) / (2 * math.pi) * H
-        drow       = np.minimum(np.abs(ROW - row_center), H - np.abs(ROW - row_center))
-        row_half   = (t_span / (2 * math.pi)) * H / 2.0
-        sigma_row  = max(row_half / 1.5, 2.0)
-        taper      = np.exp(-0.5 * (drow / (sigma_row + 1e-6)) ** 2)
+        row_center_p = (t_center % (2 * np.pi)) / (2 * np.pi) * H
+        drow_p = np.abs(ROW - row_center_p)
+        drow_p = np.minimum(drow_p, H - drow_p)
+        row_half_p = (t_span / (2 * np.pi)) * H / 2.0
+        taper_p = np.exp(-0.5 * (drow_p / (max(row_half_p/1.5, 2.0) + 1e-6))**2)
 
-        env = (band_r * taper).astype(np.float32)
+        # ── Envelope (Mask) ──────────────────────────────────────────────────
+        env = band_r_p * taper_p
 
-    # 2. Jagged Noise (Balanced for protrusion vs stability)
+    # 2. Jagged Noise (Proportional to envelope)
     np.random.seed(seed)
     noise_raw = np.random.normal(0, 1.0, (H, 1)).astype(np.float32)
-    noise_v   = cv2.GaussianBlur(noise_raw, (1, 5), 0)
-    noise_v   = (noise_v - noise_v.min()) / (np.ptp(noise_v) + 1e-6) * 2.0 - 1.0
-        
-    # Scale jaggedness aggressively (0.8 provides strong metallic protrusions)
-    jagged_f  = 1.0 + (noise_v * env * 0.8)
+    noise_v = cv2.GaussianBlur(noise_raw, (1, 5), 0)
+    # Normalize noise to [-1.0, 1.0]
+    noise_v = (noise_v - noise_v.min()) / (np.ptp(noise_v) + 1e-6) * 2.0 - 1.0
+    # Multiplier 0.4 as per confirmed snippet
+    jagged_f = 1.0 + (noise_v * env * 0.4)
 
-    # 3. Geometric Warp
-    # Scaling: depth slider (0-100) -> s_amt. 
-    # multiplier 4.0 provides a very strong effect for high-end dataset diversity
+    # 3. Geometric Warp (Remap)
     s_amt = abs(collapse_depth) * 4.0
     map_x = (COL - (env * jagged_f * s_amt)).astype(np.float32)
     map_y = ROW.astype(np.float32)
@@ -270,18 +269,27 @@ def _sdxl_step(cv_result_rgb, mask_gray, ref_rgb, seed, prompt=None, negative_pr
         # Inputs at TARGET_SIZE
         cv_pil   = _PIL.fromarray(cv_result_rgb).convert("RGB").resize(_TARGET)
         m_pil    = _PIL.fromarray(mask_gray).resize(_TARGET)
-        depth_pil = depth_est(cv_pil)["depth"].convert("RGB").resize(_TARGET)
+        # Robust depth extraction
+        depth_out = depth_est(cv_pil)
+        if isinstance(depth_out, dict):
+            depth_image = depth_out["depth"]
+        elif isinstance(depth_out, (list, tuple)):
+            depth_image = depth_out[0]
+        else:
+            depth_image = depth_out
+        depth_pil = depth_image.convert("RGB").resize(_TARGET)
 
         # IP-Adapter image: ref crop at (256, 256) — cell-16 exact
         # Fallback to cv_pil when no ref (same pattern as ring/scratch engines)
         if ref_rgb is not None:
-            ip_image = _PIL.fromarray(ref_rgb).convert("RGB").resize((256, 256))
+            ip_image = _PIL.fromarray(ref_rgb).convert("RGB").resize((224, 224))
         else:
-            ip_image = cv_pil
+            ip_image = cv_pil.resize((224, 224))
 
         pipe.set_ip_adapter_scale(_IP_SCALE)
 
         with torch.inference_mode():
+            pipe.to("cuda" if torch.cuda.is_available() else "cpu")
             ai_out = pipe(
                 prompt=prompt or _PROMPT,
                 negative_prompt=negative_prompt or _NEG,
@@ -326,10 +334,9 @@ def generate(base_image_b64: str, params: dict, mask_b64: str | None = None) -> 
         params["mask_b64"] = mask_b64
     img_rgb = decode_b64(base_image_b64)
 
-    # DEBUG: Log received seed and params
+    # DEBUG: Log received seed
     received_seed = params.get("seed")
-    print(f"\n[mc_deform DEBUG] Generate called with seed={received_seed}")
-    print(f"[mc_deform DEBUG] Params: {params}")
+    print(f"\n[mc_deform] Generate called with seed={received_seed}")
 
     try:
         cv_result, defect_mask, _ = _cv_step(img_rgb, params)

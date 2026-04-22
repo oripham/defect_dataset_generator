@@ -54,20 +54,6 @@ def _polygonize_mask(mask: np.ndarray, epsilon_factor: float = 0.03) -> np.ndarr
 
 
 
-# ── Compatibility patch ───────────────────────────────────────────────────────
-# diffusers <0.26 does not include IPAdapterMixin in
-# StableDiffusionXLControlNetInpaintPipeline, so load_ip_adapter() is missing.
-# We dynamically inject the mixin so generator_poisson_depth.py works as-is.
-
-try:
-    from diffusers import StableDiffusionXLControlNetInpaintPipeline as _CtrlPipe
-    from diffusers.loaders import IPAdapterMixin as _IPA
-    if not hasattr(_CtrlPipe, "load_ip_adapter"):
-        _CtrlPipe.__bases__ = (_IPA,) + _CtrlPipe.__bases__
-        print("[deep_generative] IPAdapterMixin injected into "
-              "StableDiffusionXLControlNetInpaintPipeline (diffusers compat patch)")
-except Exception as _patch_err:
-    print(f"[deep_generative] IPAdapterMixin patch skipped: {_patch_err}")
 
 
 # ── Routing ──────────────────────────────────────────────────────────────────

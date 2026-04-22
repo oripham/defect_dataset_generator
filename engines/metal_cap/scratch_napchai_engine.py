@@ -436,13 +436,21 @@ def _sdxl_step(cv_res_rgb, mask_gray, ref_rgb, seed, prompt=None, negative_promp
         # Inputs at TARGET_SIZE
         cv_pil    = _PIL.fromarray(cv_res_rgb).convert("RGB").resize(_TARGET)
         mask_pil  = _PIL.fromarray(mask_gray).resize(_TARGET)
-        depth_pil = depth_est(cv_pil)["depth"].convert("RGB").resize(_TARGET)
+        # Robust depth extraction
+        depth_out = depth_est(cv_pil)
+        if isinstance(depth_out, dict):
+            depth_image = depth_out["depth"]
+        elif isinstance(depth_out, (list, tuple)):
+            depth_image = depth_out[0]
+        else:
+            depth_image = depth_out
+        depth_pil = depth_image.convert("RGB").resize(_TARGET)
 
         if ref_rgb is not None:
             ip_image = _PIL.fromarray(ref_rgb).convert("RGB").resize((224, 224))
             ip_scale = 0.8
         else:
-            ip_image = cv_pil
+            ip_image = cv_pil.resize((224, 224))
             ip_scale = 0.5
 
         pipe.set_ip_adapter_scale(ip_scale)
@@ -455,7 +463,7 @@ def _sdxl_step(cv_res_rgb, mask_gray, ref_rgb, seed, prompt=None, negative_promp
                 image=cv_pil,
                 mask_image=mask_pil,
                 control_image=depth_pil,
-                ip_adapter_image=[ip_image],
+                ip_adapter_image=ip_image,
                 controlnet_conditioning_scale=_CN_SCALE,
                 num_inference_steps=_STEPS,
                 guidance_scale=_GUIDANCE,

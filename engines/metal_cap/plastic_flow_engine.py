@@ -675,9 +675,9 @@ def _sdxl_refine(base_rgb: np.ndarray, mask_gray: np.ndarray, params: dict) -> n
     ref_b64 = params.get("ref_image_b64")
     if ref_b64:
         ref_rgb = decode_b64(ref_b64)
-        ip_image = _PIL.fromarray(ref_rgb).convert("RGB").resize((256, 256))
+        ip_image = _PIL.fromarray(ref_rgb).convert("RGB").resize((224, 224))
     else:
-        ip_image = crop_pil
+        ip_image = crop_pil.resize((224, 224))
 
     prompt = str(params.get("prompt", _PLASTIC_FLOW_PROMPT))
     neg = str(params.get("negative_prompt", _PLASTIC_FLOW_NEG))
@@ -692,7 +692,15 @@ def _sdxl_refine(base_rgb: np.ndarray, mask_gray: np.ndarray, params: dict) -> n
         pipe = get_pipe()
         depth_est = get_depth_est()
 
-        depth_pil = depth_est(crop_pil)["depth"].convert("RGB").resize(target)
+        # Robust depth extraction
+        depth_out = depth_est(crop_pil)
+        if isinstance(depth_out, dict):
+            depth_image = depth_out["depth"]
+        elif isinstance(depth_out, (list, tuple)):
+            depth_image = depth_out[0]
+        else:
+            depth_image = depth_out
+        depth_pil = depth_image.convert("RGB").resize(target)
 
         pipe.set_ip_adapter_scale(ip_scale)
 
@@ -700,6 +708,7 @@ def _sdxl_refine(base_rgb: np.ndarray, mask_gray: np.ndarray, params: dict) -> n
               f"steps={steps}, ip_scale={ip_scale}, crop={crop_rgb.shape[1]}x{crop_rgb.shape[0]}")
 
         with torch.inference_mode():
+            pipe.to("cuda" if torch.cuda.is_available() else "cpu")
             ai_out = pipe(
                 prompt=prompt,
                 negative_prompt=neg,
