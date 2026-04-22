@@ -208,6 +208,7 @@ def api_cap_preview():
         return jsonify(error="image_b64 required"), 400
 
     mask_b64 = body.get("mask_b64")
+    ref_b64  = body.get("ref_image_b64")
 
     # Pass data_root for mask lookup
     p = PRODUCTS.get(product, {})
@@ -216,6 +217,7 @@ def api_cap_preview():
     result = _engine_post("/api/cap/preview", {
         "image_b64":   img_b64,
         "mask_b64":    mask_b64,
+        "ref_image_b64": ref_b64,
         "product":     product,
         "defect_type": defect_type,
         "params":      params,
@@ -287,6 +289,8 @@ def _batch_worker(job_id: str, payload: dict):
     defect_type = payload.get("defect_type", "scratch")
     params_base = payload.get("params", {})
     n_images    = int(payload.get("n_images", 10))
+    mask_b64    = payload.get("mask_b64")
+    ref_b64     = payload.get("ref_image_b64")
 
     p = PRODUCTS.get(product, {})
     data_root = str(p.get("data_dir", "")) if p else ""
@@ -323,6 +327,8 @@ def _batch_worker(job_id: str, payload: dict):
         result = _engine_post("/api/cap/preview", {
             "image_b64": img_b64, "product": product,
             "defect_type": defect_type, "params": params,
+            "mask_b64": mask_b64,
+            "ref_image_b64": ref_b64,
         })
         if result.get("_fallback") and _HAS_LOCAL_CAP:
             result = _cap_generate_local(
@@ -330,6 +336,7 @@ def _batch_worker(job_id: str, payload: dict):
                 defect_type=defect_type,
                 params=params,
                 data_root=data_root,
+                mask_b64=mask_b64,
             )
 
         if "error" in result:
@@ -389,6 +396,27 @@ def api_cap_batch_status(job_id):
     if job is None:
         return jsonify(error="job not found"), 404
     return jsonify(job)
+
+
+@cap_bp.get("/api/cap/batch/<job_id>/download")
+def api_cap_batch_download(job_id):
+    import zipfile, io
+    with _cap_batch_lock:
+        job = _cap_batch_jobs.get(job_id)
+    if job is None or job.get("status") != "done":
+        return jsonify(error="job not ready"), 404
+    out_dir = Path(job.get("out_dir", ""))
+    if not out_dir.is_dir():
+        return jsonify(error="output directory not found"), 404
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in sorted(out_dir.glob("*.png")):
+            zf.write(f, f.name)
+    buf.seek(0)
+    from flask import send_file
+    return send_file(buf, mimetype="application/zip",
+                     as_attachment=True,
+                     download_name=f"batch_{job_id}.zip")
 
 
 # ── API: results ──────────────────────────────────────────────────────────────

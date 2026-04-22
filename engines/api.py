@@ -355,6 +355,7 @@ from pydantic import BaseModel as _BM
 class _CapPreviewReq(_BM):
     image_b64:   str
     mask_b64:    Optional[str] = None
+    ref_image_b64: Optional[str] = None
     defect_type: str
     product:     str = "mka"
     params:      dict = {}
@@ -371,11 +372,14 @@ class _PharmaPreviewReq(_BM):
 def cap_preview(req: _CapPreviewReq):
     _load_cap()
     import traceback as _tb
+    params = dict(req.params)
+    if req.ref_image_b64:
+        params["ref_image_b64"] = req.ref_image_b64
     try:
         result = _cap_generate(
             base_image_b64=req.image_b64,
             defect_type=req.defect_type,
-            params=req.params,
+            params=params,
             mask_b64=req.mask_b64,
         )
     except Exception as _e:

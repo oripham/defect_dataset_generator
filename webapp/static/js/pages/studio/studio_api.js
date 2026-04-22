@@ -170,6 +170,8 @@ async function startBatch() {
       break_types: breakTypes,
       image_b64: imagePool[0],
       images_b64: imagePool,
+      mask_b64: maskB64 || null,
+      ref_image_b64: ngRefB64 || null,
     }),
   });
   const d = await resp.json();
@@ -190,6 +192,15 @@ async function pollBatch(api) {
     clearInterval(batchTimer);
     document.getElementById("btn-batch-start").disabled = false;
     log(`Batch done \u2192 ${d.out_dir || d.error || ""}`);
+    if (d.status === "done" && d.out_dir) {
+      const dlBtn = document.getElementById("btn-batch-download");
+      if (dlBtn) {
+        dlBtn.style.display = "";
+        dlBtn.onclick = () => {
+          window.location.href = `/api/${api}/batch/${batchJobId}/download`;
+        };
+      }
+    }
   }
 }
 
