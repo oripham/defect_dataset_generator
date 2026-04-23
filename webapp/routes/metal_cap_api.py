@@ -332,3 +332,30 @@ def api_batch_status(job_id):
         return jsonify(error="job not found"), 404
     return jsonify(job)
 
+
+@metal_cap_bp.get("/api/metal_cap/batch/<job_id>/download")
+def api_batch_download(job_id):
+    import zipfile, io
+    with _batch_lock:
+        job = _batch_jobs.get(job_id)
+    if job is None or job.get("status") != "done":
+        return jsonify(error="job not ready"), 404
+    out_dir = Path(job.get("out_dir", ""))
+    if not out_dir.is_dir():
+        return jsonify(error="output directory not found"), 404
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for sub in ("images", "labels", "debug"):
+            sub_dir = out_dir / sub
+            if sub_dir.is_dir():
+                for f in sorted(sub_dir.iterdir()):
+                    if f.is_file():
+                        zf.write(f, f"{sub}/{f.name}")
+        for f in sorted(out_dir.iterdir()):
+            if f.is_file():
+                zf.write(f, f.name)
+    buf.seek(0)
+    from flask import send_file
+    return send_file(buf, mimetype="application/zip",
+                     as_attachment=True,
+                     download_name=f"batch_{job_id}.zip")

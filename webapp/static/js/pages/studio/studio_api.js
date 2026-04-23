@@ -198,7 +198,7 @@ async function pollBatch(api) {
     if (d.status === "done" && d.out_dir) {
       const dlBtn = document.getElementById("btn-batch-download");
       if (dlBtn) {
-        const dlUrl = `/api/cap/batch/${batchJobId}/download`;
+        const dlUrl = `/api/${api}/batch/${batchJobId}/download`;
         dlBtn.href = dlUrl;
         dlBtn.style.display = "";
       }
