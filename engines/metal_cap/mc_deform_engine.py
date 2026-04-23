@@ -41,7 +41,7 @@ POLAR_W = 512
 _TARGET  = (768, 768)
 _PROMPT  = "irregular industrial metal defect, crushed rim, jagged metallic edges, deep dent, heavy specular reflections, polished chrome, photorealistic, high contrast, non-geometric damage"
 _NEG     = "smooth, perfect circle, plastic, matte, flat, low quality, sphere"
-_STRENGTH  = 0.98
+_STRENGTH  = 0.5
 _GUIDANCE  = 12.0
 _CN_SCALE  = 0.2
 _STEPS     = 30
@@ -282,9 +282,9 @@ def _sdxl_step(cv_result_rgb, mask_gray, ref_rgb, seed, prompt=None, negative_pr
         # IP-Adapter image: ref crop at (256, 256) — cell-16 exact
         # Fallback to cv_pil when no ref (same pattern as ring/scratch engines)
         if ref_rgb is not None:
-            ip_image = _PIL.fromarray(ref_rgb).convert("RGB").resize((224, 224))
+            ip_image = _PIL.fromarray(ref_rgb).convert("RGB").resize((256, 256))
         else:
-            ip_image = cv_pil.resize((224, 224))
+            ip_image = cv_pil.resize((256, 256))
 
         _p = params or {}
         ip_scale = float(_p.get("ip_scale", _IP_SCALE))
