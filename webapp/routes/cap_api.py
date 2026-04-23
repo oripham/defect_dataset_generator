@@ -34,7 +34,8 @@ from utils import engine_post as _engine_post
 
 # Local engine — used only when no server_url (offline mode)
 try:
-    from engines.metal_cap.cap_engine import generate as _cap_generate_local, detect_circle_info as _cap_detect_circle_local
+    from engines.metal_cap.mka_cap_engine import generate as _cap_generate_local
+    from engines.metal_cap.cap_engine import detect_circle_info as _cap_detect_circle_local
     _HAS_LOCAL_CAP = True
 except Exception:
     _HAS_LOCAL_CAP = False
