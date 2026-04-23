@@ -92,8 +92,8 @@ def _b64_to_bgr(b64: str) -> np.ndarray:
     return cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
 
-def _write_yolo_label(label_path: Path, mask_gray, img_shape, class_id=0):
-    """Write YOLO bbox label from mask. Format: class_id cx cy w h (normalized)."""
+def _write_yolo_label(label_path: Path, mask_gray, img_shape, class_id=0, mode="bbox"):
+    """Write YOLO label from mask. mode='bbox' or 'segment'."""
     h, w = img_shape[:2]
     if mask_gray is None or mask_gray.size == 0:
         label_path.write_text("")
@@ -102,14 +102,24 @@ def _write_yolo_label(label_path: Path, mask_gray, img_shape, class_id=0):
     contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     lines = []
     for cnt in contours:
-        x, y, bw, bh = cv2.boundingRect(cnt)
-        if bw < 3 or bh < 3:
+        if cv2.contourArea(cnt) < 9:
             continue
-        cx = (x + bw / 2) / w
-        cy = (y + bh / 2) / h
-        nw = bw / w
-        nh = bh / h
-        lines.append(f"{class_id} {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f}")
+        if mode == "segment":
+            eps = 0.005 * cv2.arcLength(cnt, True)
+            approx = cv2.approxPolyDP(cnt, eps, True)
+            if len(approx) < 3:
+                continue
+            pts = " ".join(f"{p[0][0]/w:.6f} {p[0][1]/h:.6f}" for p in approx)
+            lines.append(f"{class_id} {pts}")
+        else:
+            x, y, bw, bh = cv2.boundingRect(cnt)
+            if bw < 3 or bh < 3:
+                continue
+            cx = (x + bw / 2) / w
+            cy = (y + bh / 2) / h
+            nw = bw / w
+            nh = bh / h
+            lines.append(f"{class_id} {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f}")
     label_path.write_text("\n".join(lines))
 
 
@@ -312,6 +322,7 @@ def _batch_worker(job_id: str, payload: dict):
     n_images    = int(payload.get("n_images", 10))
     mask_b64    = payload.get("mask_b64")
     ref_b64     = payload.get("ref_image_b64")
+    anno_mode   = payload.get("annotation_mode", "bbox")
 
     p = PRODUCTS.get(product, {})
     data_root = str(p.get("data_dir", "")) if p else ""
@@ -394,7 +405,8 @@ def _batch_worker(job_id: str, payload: dict):
                     mask_data = base64.b64decode(mask_b64_used)
                     mask_gray = cv2.imdecode(np.frombuffer(mask_data, np.uint8), cv2.IMREAD_GRAYSCALE)
                 _write_yolo_label(lbl_dir / (fname_stem + ".txt"),
-                                  mask_gray, res_bgr.shape[:2], class_id=0)
+                                  mask_gray, res_bgr.shape[:2], class_id=0,
+                                  mode=anno_mode)
             except Exception:
                 pass
 

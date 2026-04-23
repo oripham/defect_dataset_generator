@@ -155,9 +155,11 @@ async function startBatch() {
 
   const imagePool = batchImagePool.length > 0 ? batchImagePool : [okImageB64];
 
+  const annoMode = document.getElementById("batch-anno-mode")?.value || "bbox";
+
   document.getElementById("batch-progress-wrap").style.display = "";
   document.getElementById("btn-batch-start").disabled = true;
-  log(`Batch start: ${nImages} images, source pool=${imagePool.length}`);
+  log(`Batch start: ${nImages} images, source pool=${imagePool.length}, anno=${annoMode}`);
 
   const resp = await fetch(`/api/${api}/batch`, {
     method: "POST",
@@ -172,6 +174,7 @@ async function startBatch() {
       images_b64: imagePool,
       mask_b64: maskB64 || null,
       ref_image_b64: ngRefB64 || null,
+      annotation_mode: annoMode,
     }),
   });
   const d = await resp.json();

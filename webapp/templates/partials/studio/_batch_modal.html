@@ -15,6 +15,14 @@
 
     <div class="mb-2 small text-muted" id="batch-src-info"></div>
 
+    <div class="mb-3">
+      <label class="form-label small fw-semibold">Annotation Format / アノテーション形式</label>
+      <select id="batch-anno-mode" class="form-select form-select-sm bg-dark border-secondary text-light">
+        <option value="bbox" selected>Detection (BBox) / 検出 (矩形)</option>
+        <option value="segment">Segmentation (Polygon) / セグメンテーション</option>
+      </select>
+    </div>
+
     <div class="mb-3" id="batch-crack-opts" style="display:none">
       <label class="form-label small fw-semibold">Break types / 割れ形状</label>
       <div class="d-flex flex-wrap gap-2">
