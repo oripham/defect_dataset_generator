@@ -123,3 +123,9 @@ test_scenario.py
 *.ps1
 scripts/draw_mask_tool.py
 scripts/small_scratch_experiment.py
+""  
+"!/eval/"  
+"!/eval/**"  
+""  
+"!/eval/"  
+"!/eval/**"  
