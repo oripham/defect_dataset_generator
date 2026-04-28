@@ -362,7 +362,9 @@ def synthesize_scratch_procedural(
 
     res_f = base_f * (1.0 - tl * 0.65 * mask_f_3d)
     res_f = np.clip(res_f + gl * 0.35 * mask_f_3d, 0, 1)
-    return (res_f * 255.0).astype(np.uint8), clean_mask
+
+    scratch_mask = np.clip((trench_layer + glint_layer) * 255, 0, 255).astype(np.uint8)
+    return (res_f * 255.0).astype(np.uint8), scratch_mask
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

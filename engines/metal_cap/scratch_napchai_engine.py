@@ -69,10 +69,10 @@ _FLUX_STRENGTH = 0.5
 # ── Severity presets ───────────────────────────────────────────────────────────
 # Mỗi preset định nghĩa: (shadow_strength, ridge_strength, width_range, length_range, companion_prob)
 _SEVERITY_PRESETS = {
-    #                shadow  ridge  width      length (px polar)  companion
-    "light":  dict(shadow=0.28, ridge=0.55, width=(1, 1), length=(300,  600), companion_prob=0.35),
-    "medium": dict(shadow=0.38, ridge=0.75, width=(1, 1), length=(450,  850), companion_prob=0.55),
-    "heavy":  dict(shadow=0.50, ridge=0.95, width=(1, 2), length=(650, 1100), companion_prob=0.72),
+    #                shadow  ridge  width      length (px polar)       count   companion
+    "light":  dict(shadow=0.28, ridge=0.55, width=(1, 1), length=(20,  60), n_strokes=(5, 10),  companion_prob=0.35),
+    "medium": dict(shadow=0.38, ridge=0.75, width=(1, 1), length=(30,  90), n_strokes=(8, 18),  companion_prob=0.55),
+    "heavy":  dict(shadow=0.50, ridge=0.95, width=(1, 2), length=(40, 120), n_strokes=(12, 25), companion_prob=0.72),
 }
 
 
@@ -235,7 +235,14 @@ def _synthesize_scratch_realistic(
     # Zero out beyond rim
     clean_mask = polar_mask.copy()
     clean_mask[:, rim_col:] = 0
-    mask_f = clean_mask.astype(np.float32) / 255.0
+
+    # Expand mask slightly to capture scratch edges that extend just beyond
+    expand_px = 15
+    kern = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (expand_px * 2 + 1, expand_px * 2 + 1))
+    blend_mask = cv2.dilate(clean_mask, kern, iterations=1)
+    blend_mask[:, rim_col:] = 0
+
+    mask_f = blend_mask.astype(np.float32) / 255.0
     if polar_img.ndim == 3:
         mask_f3 = mask_f[:, :, np.newaxis]
     else:
@@ -251,38 +258,24 @@ def _synthesize_scratch_realistic(
         return polar_img, clean_mask
 
     count = max(1, min(count, 5))
+    n_strokes = _random.randint(*preset["n_strokes"])
 
-    for _ in range(count):
+    for _ in range(count * n_strokes):
         idx = _random.randint(0, len(x_coords) - 1)
         sx, sy = int(x_coords[idx]), int(y_coords[idx])
 
-        # ── Hướng: bias mạnh theo tangential (horizontal = 0 rad)
-        # Phân bố Gaussian quanh 0, std ~0.3 rad (~17°)
-        # Đôi khi lệch nhiều hơn để có vết chéo tự nhiên (~15% xác suất)
-        if _random.random() < 0.15:
-            base_angle = _random.gauss(0, 0.55)  # chéo hơn
-        else:
-            base_angle = _random.gauss(0, 0.28)  # gần như nằm ngang
+        # Hướng: chủ yếu tangential (vertical in polar = π/2 rad), có dao động
+        base_angle = _random.gauss(math.pi / 2, 0.45)
 
         length = _random.randint(*preset["length"])
         width  = _random.randint(*preset["width"])
 
-        # Vết xước chính
         _draw_scratch_stroke(
             trench_layer, glint_layer,
             sx, sy, base_angle, length, width,
-            intensity=_random.uniform(0.75, 1.0),
+            intensity=_random.uniform(0.55, 1.0),
             H=H, W=W,
         )
-
-        # Companion scratches (bó vết song song)
-        if _random.random() < preset["companion_prob"]:
-            n_comp = _random.randint(1, 3)
-            _draw_companion_scratches(
-                trench_layer, glint_layer,
-                sx, sy, base_angle, length,
-                H=H, W=W, n=n_comp,
-            )
 
     # ── Ridge: Sobel của trench → viền sáng 2 bên rãnh ──────────────────────
     gx = cv2.Sobel(trench_layer, cv2.CV_32F, 1, 0, ksize=3)
@@ -337,7 +330,9 @@ def _synthesize_scratch_realistic(
     res_f = 1.0 - (1.0 - res_f) * (1.0 - glint_3 * glint_strength * mask_f3)
     res_f = np.clip(res_f, 0, 1)
 
-    return (res_f * 255.0).astype(np.uint8), clean_mask
+    scratch_mask = np.clip((trench_layer + glint_layer) * 255, 0, 255).astype(np.uint8)
+    scratch_mask[blend_mask < 32] = 0
+    return (res_f * 255.0).astype(np.uint8), scratch_mask
 
 
 # ── CV step ───────────────────────────────────────────────────────────────────

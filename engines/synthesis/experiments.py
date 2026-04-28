@@ -484,6 +484,10 @@ def synth_dark_spots(ok, product_bbox, seed=0, n_spots_range=(1, 1), r_range=(1,
 
         composite = np.maximum(composite, spot)
 
+    # Dilate mask slightly to encompass defect area
+    pad_px = max(3, int(r_range[1]) + 1)
+    kern = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (pad_px * 2 + 1, pad_px * 2 + 1))
+    composite = cv2.dilate(composite, kern, iterations=1)
     mask_out = (composite * 255).clip(0, 255).astype(np.uint8)
     return np.clip(out, 0, 255).astype(np.uint8), mask_out
 
@@ -643,7 +647,8 @@ def synth_plastic_scuff(ok, mask, seed=0, alpha_mult=1.35, whiten_add=120, mode=
     for c in range(3):
         out[:, :, c] = out[:, :, c] + scratch_layer * scratch_whiten
 
-    return np.clip(out, 0, 255).astype(np.uint8)
+    defect_mask = np.clip((patch_alpha * 0.5 + scratch_layer) * 255, 0, 255).astype(np.uint8)
+    return np.clip(out, 0, 255).astype(np.uint8), defect_mask
 
 
 def apply_plastic_matte(ok, mask, seed=0, strength=0.75):
@@ -826,7 +831,8 @@ def synth_thread(ok, mask, seed=0):
         ch = ch * (1 - alpha_h) + brt_target * alpha_h
         out[:, :, c] = ch
 
-    return np.clip(out, 0, 255).astype(np.uint8)
+    defect_mask = np.clip(presence_layer * 255, 0, 255).astype(np.uint8)
+    return np.clip(out, 0, 255).astype(np.uint8), defect_mask
 
 
 # ── Ref-based injection (transfer real defect texture) ────────────────────────

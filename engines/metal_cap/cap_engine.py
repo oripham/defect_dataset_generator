@@ -130,11 +130,11 @@ def _run_scratch(img_bgr: np.ndarray, mask_dir: str, params: dict):
         mask = _auto_place_mask(mask, img_bgr, seed)
 
     result = _exp.apply_plastic_matte(img_bgr, mask, seed=seed, strength=0.6)
-    result = _exp.synth_plastic_scuff(result, mask, seed=seed,
+    result, defect_mask = _exp.synth_plastic_scuff(result, mask, seed=seed,
                                        alpha_mult=alpha_mult,
                                        whiten_add=whiten_add,
                                        mode=mode, size=size)
-    return result, mask, None
+    return result, defect_mask, None
 
 
 def _run_mc_deform(img_bgr: np.ndarray, _mask_dir: str, params: dict):
@@ -212,8 +212,8 @@ def _run_thread(img_bgr: np.ndarray, mask_dir: str, params: dict):
                               interpolation=cv2.INTER_NEAREST)
             mask = _auto_place_mask(mask, img_bgr, seed)
 
-    result   = _exp.synth_thread(img_bgr, mask, seed=seed)
-    return result, mask, None
+    result, defect_mask = _exp.synth_thread(img_bgr, mask, seed=seed)
+    return result, defect_mask, None
 
 
 def _run_dent(img_bgr: np.ndarray, _mask_dir: str, params: dict):
