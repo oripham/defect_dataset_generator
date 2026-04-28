@@ -137,8 +137,20 @@ def _synthesize_ring_fractures(polar, r_ring_col, seed=None, jitter_amplitude=4.
             g_radius = int(rng.randint(1, 3))
             cv2.circle(glint_mask, (cx, i), g_radius, 255, -1)
 
-    p_mask = (influence * 255).astype(np.uint8)
-    return polar_distorted, p_mask, glint_mask
+    # Blend mask (dùng để alpha-blend — đều 360°)
+    blend_mask = (influence * 255).astype(np.uint8)
+
+    # Defect mask (dùng cho label — dựa trên displacement thực tế)
+    displacement = np.abs(shift_val)
+    if displacement.max() > 1e-6:
+        defect_mask = (displacement / displacement.max() * 255).astype(np.uint8)
+    else:
+        defect_mask = np.zeros((H, W), dtype=np.uint8)
+    defect_mask = cv2.GaussianBlur(defect_mask, (5, 5), 0)
+    defect_mask[defect_mask < 38] = 0
+    defect_mask[glint_mask > 0] = 255
+
+    return polar_distorted, blend_mask, defect_mask, glint_mask
 
 
 # ── CV step ───────────────────────────────────────────────────────────────────
@@ -165,8 +177,8 @@ def _cv_step(img_rgb: np.ndarray, params: dict):
     polar_gray = cv2.cvtColor(polar_img, cv2.COLOR_RGB2GRAY).astype(np.float32)
     r_col      = _find_rim_col(polar_gray)
 
-    p_distorted, p_mask, p_glints = _synthesize_ring_fractures(
-        polar_img, r_ring_col=r_col, seed=seed, jitter_amplitude=jitter, 
+    p_distorted, p_blend_mask, p_defect_mask, p_glints = _synthesize_ring_fractures(
+        polar_img, r_ring_col=r_col, seed=seed, jitter_amplitude=jitter,
         influence_range=inf_range
     )
     p_distorted[p_glints > 0] = 255
@@ -174,17 +186,17 @@ def _cv_step(img_rgb: np.ndarray, params: dict):
     # ── Cartesian reconstruct (cell-7 step-2) ──────────────────────────────
     osize        = (img_rgb.shape[1], img_rgb.shape[0])
     cv_distorted = _from_polar(p_distorted, center, max_radius, osize)
-    cv_mask      = _from_polar(p_mask,       center, max_radius, osize)
+    cv_blend     = _from_polar(p_blend_mask, center, max_radius, osize)
+    cv_defect    = _from_polar(p_defect_mask, center, max_radius, osize)
 
-    if cv_mask.ndim == 3:
-        mask_input = cv_mask[:, :, 0].astype(np.float32) / 255.0
+    if cv_blend.ndim == 3:
+        blend_input = cv_blend[:, :, 0].astype(np.float32) / 255.0
     else:
-        mask_input = cv_mask.astype(np.float32) / 255.0
+        blend_input = cv_blend.astype(np.float32) / 255.0
 
     # ── Cartesian soft-mask blend (cell-7 step-3) ──────────────────────────
     # soft_mask = mask^(1/falloff_width) → GaussianBlur
-    # We use falloff_width both for geometry range and blend softness
-    soft_mask = np.power(mask_input, 1.0 / max(falloff_width, 0.05))
+    soft_mask = np.power(blend_input, 1.0 / max(falloff_width, 0.05))
     soft_mask = cv2.GaussianBlur(soft_mask, (9, 9), 0)
     soft_mask = soft_mask[:, :, np.newaxis]
 
@@ -196,7 +208,11 @@ def _cv_step(img_rgb: np.ndarray, params: dict):
                  + cv_dist_f * (soft_mask * alpha_max))
 
     cv_res  = np.clip(combined, 0, 255).astype(np.uint8)
-    m_res   = (mask_input * 255).astype(np.uint8)       # 2D
+    # Output mask = defect mask (vùng fracture thực tế, không phải blend zone)
+    if cv_defect.ndim == 3:
+        m_res = cv_defect[:, :, 0]
+    else:
+        m_res = cv_defect
 
     print(f"[ring_fracture] jitter={jitter:.2f}, inf_range={inf_range:.2f}, falloff={falloff_width:.2f}")
     return cv_res, m_res

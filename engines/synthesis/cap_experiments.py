@@ -248,14 +248,16 @@ def synth_ring_fracture(
                                  borderMode=cv2.BORDER_REFLECT)
 
     # Sparse glints along fractured rim
+    glint_mask = np.zeros((H, W), dtype=np.uint8)
     for i in range(H):
         x = int(r_col + profile[i])
         if 0 <= x < W and rng.rand() > 0.85:
             sz = int(rng.randint(1, 3))
             cv2.circle(polar_distorted, (x, i), sz,
                        (255, 255, 255) if polar_distorted.ndim == 3 else 255, -1)
+            cv2.circle(glint_mask, (x, i), sz, 255, -1)
 
-    # Soft alpha blend: distorted near rim, original far from rim
+    # Blend mask (dùng để alpha-blend — đều 360°)
     p_mask_f = np.power(np.clip(influence, 0, 1), 1.0 / max(falloff_power, 0.1))
     p_mask_f = cv2.GaussianBlur(p_mask_f.astype(np.float32), (9, 9), 0)
     alpha_max = 0.9
@@ -269,5 +271,15 @@ def synth_ring_fracture(
         combined = orig_f * (1 - p_mask_f * alpha_max) + dist_f * (p_mask_f * alpha_max)
 
     result   = np.clip(combined, 0, 255).astype(np.uint8)
-    out_mask = np.clip(p_mask_f * 255, 0, 255).astype(np.uint8)
+
+    # Defect mask — dựa trên displacement thực tế (thay đổi theo góc)
+    displacement = np.abs(shift_val)
+    if displacement.max() > 1e-6:
+        defect_mask = displacement / displacement.max()
+    else:
+        defect_mask = np.zeros((H, W), dtype=np.float32)
+    defect_mask = cv2.GaussianBlur(defect_mask.astype(np.float32), (5, 5), 0)
+    defect_mask[defect_mask < 0.15] = 0
+    defect_mask[glint_mask > 0] = 1.0
+    out_mask = np.clip(defect_mask * 255, 0, 255).astype(np.uint8)
     return result, out_mask

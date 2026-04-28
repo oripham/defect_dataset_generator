@@ -379,8 +379,7 @@ def synth_dark_spots(ok, product_bbox, seed=0, n_spots_range=(1, 1), r_range=(1,
             cy = int(rng2.integers(py0 + 5, py1 - 5))
         r0, r1 = int(r_range[0]), int(r_range[1])
         r  = int(rng2.integers(r0, r1 + 1))
-        # Compact round/oval shapes only — no streaks (ref image shows round blobs).
-        # kind 1 = smooth ellipse, kind 2 = organic blob (compact)
+        # kind 1 = slightly irregular ellipse, 2 = near-round blob with mild jitter
         kind = int(rng2.choice([1, 2], p=[0.40, 0.60]))
 
         S = 7  # supersample factor
@@ -393,19 +392,18 @@ def synth_dark_spots(ok, product_bbox, seed=0, n_spots_range=(1, 1), r_range=(1,
         spot_s = np.zeros((phs, pws), dtype=np.float32)
         cc = (pr * S, pr * S)
 
-        if kind == 1:  # smooth ellipse — compact, aspect ratio close to 1
+        if kind == 1:  # near-round ellipse — aspect 0.75-0.95
             rx = int(max(1, r) * S)
-            ry = int(max(1, r) * float(rng2.uniform(0.65, 1.0)) * S)
+            ry = int(max(1, r) * float(rng2.uniform(0.75, 0.95)) * S)
             angle = float(rng2.uniform(0, 180))
             cv2.ellipse(spot_s, cc, (rx, ry), angle, 0, 360, 1.0, -1, lineType=cv2.LINE_AA)
-        else:  # organic blob — compact, mild jitter only
-            n_pts = int(rng2.integers(8, 13))
+        else:  # near-round blob — mild radial noise ±15%
+            n_pts = int(rng2.integers(8, 14))
             base_angs = np.linspace(0, 2 * np.pi, n_pts, endpoint=False)
             ang_step = 2 * np.pi / n_pts
-            ang_noise = rng2.uniform(-0.25, 0.25, n_pts) * ang_step
+            ang_noise = rng2.uniform(-0.20, 0.20, n_pts) * ang_step
             angs = np.sort((base_angs + ang_noise) % (2 * np.pi))
-            # Tight radial jitter — stays compact, never elongated
-            noise = rng2.uniform(0.80, 1.20, n_pts)
+            noise = rng2.uniform(0.85, 1.15, n_pts)
             rr = float(max(1, r) * S)
             pts = np.array([
                 [int(cc[0] + rr * noise[i] * np.cos(a)),
@@ -425,16 +423,16 @@ def synth_dark_spots(ok, product_bbox, seed=0, n_spots_range=(1, 1), r_range=(1,
         spot = np.zeros((H, W), dtype=np.float32)
         y0 = cy - pr; y1 = cy + pr + 1
         x0 = cx - pr; x1 = cx + pr + 1
-        py0 = 0; px0 = 0; py1 = ph; px1 = pw
+        sy0 = 0; sx0 = 0; sy1 = ph; sx1 = pw
         if y0 < 0:
-            py0 = -y0; y0 = 0
+            sy0 = -y0; y0 = 0
         if x0 < 0:
-            px0 = -x0; x0 = 0
+            sx0 = -x0; x0 = 0
         if y1 > H:
-            py1 = ph - (y1 - H); y1 = H
+            sy1 = ph - (y1 - H); y1 = H
         if x1 > W:
-            px1 = pw - (x1 - W); x1 = W
-        spot[y0:y1, x0:x1] = spot_p[py0:py1, px0:px1]
+            sx1 = pw - (x1 - W); x1 = W
+        spot[y0:y1, x0:x1] = spot_p[sy0:sy1, sx0:sx1]
 
         if bump:
             # Opaque dark particle: replace metal texture with near-black flat color

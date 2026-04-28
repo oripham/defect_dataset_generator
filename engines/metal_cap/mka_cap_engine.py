@@ -183,8 +183,8 @@ def _run_dark_spots(img_bgr: np.ndarray, _mask_dir: str, params: dict):
     bbox = _exp.detect_product_bbox(img_bgr)
     n_min = int(params.get("n_spots_min", 1))
     n_max = int(params.get("n_spots_max", 3))
-    r_min = int(params.get("r_min", 5))
-    r_max = int(params.get("r_max", 14))
+    r_min = int(params.get("r_min", 2))
+    r_max = int(params.get("r_max", 5))
     result, mask_out = _exp.synth_dark_spots(
         img_bgr, bbox,
         seed=int(params.get("seed", 42)),

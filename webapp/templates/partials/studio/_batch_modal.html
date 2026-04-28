@@ -16,6 +16,19 @@
     <div class="mb-2 small text-muted" id="batch-src-info"></div>
 
     <div class="mb-3">
+      <label class="form-label small fw-semibold">Output Folder / 出力フォルダ</label>
+      <input type="text" id="batch-output-folder" class="form-control form-control-sm bg-dark border-secondary text-light"
+        placeholder="(auto) or e.g. dataset_v1">
+      <div class="form-text text-muted small">Same folder name = append to existing dataset / 同じ名前 = 既存に追加</div>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label small fw-semibold">Class ID</label>
+      <input type="number" id="batch-class-id" class="form-control form-control-sm bg-dark border-secondary text-light"
+        value="0" min="0" max="99">
+    </div>
+
+    <div class="mb-3">
       <label class="form-label small fw-semibold">Annotation Format / アノテーション形式</label>
       <select id="batch-anno-mode" class="form-select form-select-sm bg-dark border-secondary text-light">
         <option value="bbox" selected>Detection (BBox) / 検出 (矩形)</option>

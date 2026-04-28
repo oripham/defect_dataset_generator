@@ -708,7 +708,6 @@ def _sdxl_refine(base_rgb: np.ndarray, mask_gray: np.ndarray, params: dict) -> n
               f"steps={steps}, ip_scale={ip_scale}, crop={crop_rgb.shape[1]}x{crop_rgb.shape[0]}")
 
         with torch.inference_mode():
-            pipe.to("cuda" if torch.cuda.is_available() else "cpu")
             ai_out = pipe(
                 prompt=prompt,
                 negative_prompt=neg,

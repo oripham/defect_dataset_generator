@@ -32,6 +32,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from flask import Blueprint, jsonify, request
+from .cap_api import _write_yolo_label
 
 _ROOT = Path(__file__).parent.parent.parent  # defect_dataset_generator/
 sys.path.insert(0, str(_ROOT))
@@ -244,6 +245,9 @@ def _batch_worker(job_id: str, payload: dict):
     defect_type = payload["defect_type"]
     params_base = payload.get("params", {})
     n_images = int(payload.get("n_images", 10))
+    anno_mode = payload.get("annotation_mode", "bbox")
+    class_id = int(payload.get("class_id", 0))
+    custom_folder = payload.get("output_folder", "").strip()
 
     ok_files = _ok_images_for(defect_type)
     if not ok_files:
@@ -254,8 +258,16 @@ def _batch_worker(job_id: str, payload: dict):
     import itertools
     from datetime import datetime
 
-    out_dir = RESULTS_ROOT / datetime.now().strftime("%Y%m%d_%H%M%S") / defect_type
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if custom_folder:
+        out_dir = RESULTS_ROOT / custom_folder
+    else:
+        out_dir = RESULTS_ROOT / datetime.now().strftime("%Y%m%d_%H%M%S") / defect_type
+    img_dir = out_dir / "images"
+    lbl_dir = out_dir / "labels"
+    dbg_dir = out_dir / "debug"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    lbl_dir.mkdir(parents=True, exist_ok=True)
+    dbg_dir.mkdir(parents=True, exist_ok=True)
 
     ok_cycle = itertools.cycle(ok_files)
     generated = 0
@@ -286,9 +298,32 @@ def _batch_worker(job_id: str, payload: dict):
             errors += 1
         else:
             s_tag = f"_s{params['seed']}"
-            fname = f"{defect_type}_{ok_path.stem}{s_tag}.png"
+            fname_stem = f"{defect_type}_{ok_path.stem}{s_tag}"
+            fname = fname_stem + ".png"
             res_bgr = _b64_to_bgr(result.get("result_image", ""))
-            cv2.imwrite(str(out_dir / fname), res_bgr)
+            cv2.imwrite(str(img_dir / fname), res_bgr)
+
+            mask_gray = None
+            try:
+                mask_b64_used = result.get("mask_b64", "")
+                if mask_b64_used:
+                    mask_data = base64.b64decode(mask_b64_used)
+                    mask_gray = cv2.imdecode(np.frombuffer(mask_data, np.uint8), cv2.IMREAD_GRAYSCALE)
+                _write_yolo_label(lbl_dir / (fname_stem + ".txt"),
+                                  mask_gray, res_bgr.shape[:2], class_id=class_id,
+                                  mode=anno_mode)
+            except Exception:
+                pass
+
+            try:
+                if mask_gray is None:
+                    mask_gray = np.zeros(ok_bgr.shape[:2], np.uint8)
+                from .cap_api import _make_debug_panel
+                panel = _make_debug_panel(ok_bgr, mask_gray, res_bgr)
+                cv2.imwrite(str(dbg_dir / f"debug_{fname}"), panel)
+            except Exception:
+                pass
+
             generated += 1
 
         with _batch_lock:

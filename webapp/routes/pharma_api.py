@@ -231,6 +231,9 @@ def _batch_worker(job_id: str, payload: dict):
     defect_type = payload["defect_type"]
     params_base = payload.get("params", {})
     n_images    = int(payload.get("n_images", 10))
+    anno_mode   = payload.get("annotation_mode", "bbox")
+    class_id    = int(payload.get("class_id", 0))
+    custom_folder = payload.get("output_folder", "").strip()
 
     # break_types / angles / depths for crack variety
     break_types = payload.get("break_types",
@@ -248,8 +251,16 @@ def _batch_worker(job_id: str, payload: dict):
     import itertools, random as _random
     from datetime import datetime
 
-    out_dir = RESULTS_ROOT / datetime.now().strftime("%Y%m%d_%H%M%S") / product / defect_type
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if custom_folder:
+        out_dir = RESULTS_ROOT / custom_folder
+    else:
+        out_dir = RESULTS_ROOT / datetime.now().strftime("%Y%m%d_%H%M%S") / product / defect_type
+    img_dir = out_dir / "images"
+    lbl_dir = out_dir / "labels"
+    dbg_dir = out_dir / "debug"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    lbl_dir.mkdir(parents=True, exist_ok=True)
+    dbg_dir.mkdir(parents=True, exist_ok=True)
 
     generated = 0
     errors    = 0
@@ -300,17 +311,30 @@ def _batch_worker(job_id: str, payload: dict):
             d_tag   = f"_d{int((depth or 0)*100)}" if depth else ""
             a_tag   = f"_a{int(angle or 0)}" if angle is not None else ""
             s_tag   = f"_s{params['seed']}"
-            fname   = f"{defect_type}{bt_tag}{d_tag}{a_tag}_{ok_stem}{s_tag}.png"
+            fname_stem = f"{defect_type}{bt_tag}{d_tag}{a_tag}_{ok_stem}{s_tag}"
+            fname   = fname_stem + ".png"
 
             res_bgr = _b64_to_bgr(result["result_image"])
-            cv2.imwrite(str(out_dir / fname), res_bgr)
+            cv2.imwrite(str(img_dir / fname), res_bgr)
 
-            # Save debug panel
+            mask_gray = None
             try:
                 mask_b64_used = result.get("mask_b64", "")
-                mask_gray = _b64_to_bgr(mask_b64_used)[:, :, 0] if mask_b64_used else np.zeros(ok_bgr.shape[:2], np.uint8)
+                if mask_b64_used:
+                    mask_data = base64.b64decode(mask_b64_used)
+                    mask_gray = cv2.imdecode(np.frombuffer(mask_data, np.uint8), cv2.IMREAD_GRAYSCALE)
+                from .cap_api import _write_yolo_label
+                _write_yolo_label(lbl_dir / (fname_stem + ".txt"),
+                                  mask_gray, res_bgr.shape[:2], class_id=class_id,
+                                  mode=anno_mode)
+            except Exception:
+                pass
+
+            try:
+                if mask_gray is None:
+                    mask_gray = np.zeros(ok_bgr.shape[:2], np.uint8)
                 panel = _make_debug_panel(ok_bgr, mask_gray, res_bgr)
-                cv2.imwrite(str(out_dir / f"debug_{fname}"), panel)
+                cv2.imwrite(str(dbg_dir / f"debug_{fname}"), panel)
             except Exception:
                 pass
 

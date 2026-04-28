@@ -256,12 +256,23 @@ def synthesize_ring_fractures(
     else:
         polar_distorted[glint_mask > 0] = 255
 
-    # 5. Soft alpha blend (Cell 8 logic)
-    mask_input = (influence * 255).astype(np.float32) / 255.0
-    soft_mask = np.power(np.clip(mask_input, 0, 1), 1.0 / falloff_width)
-    soft_mask = cv2.GaussianBlur(soft_mask, (9, 9), 0)
+    # 5. Blend mask — Gaussian influence (dùng để alpha-blend, đều 360°)
+    blend_input = np.power(np.clip(influence, 0, 1), 1.0 / falloff_width)
+    blend_mask = cv2.GaussianBlur(blend_input, (9, 9), 0)
 
-    return polar_distorted, (soft_mask * 255).astype(np.uint8)
+    # 6. Defect mask — dựa trên displacement thực tế (thay đổi theo góc)
+    displacement = np.abs(shift_val)
+    if displacement.max() > 1e-6:
+        defect_mask = displacement / displacement.max()
+    else:
+        defect_mask = displacement
+    defect_mask = cv2.GaussianBlur(defect_mask, (5, 5), 0)
+    defect_mask[defect_mask < 0.15] = 0
+    defect_mask[glint_mask > 0] = 1.0
+
+    return polar_distorted, \
+           (blend_mask * 255).astype(np.uint8), \
+           (defect_mask * 255).astype(np.uint8)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -596,7 +607,7 @@ def generate(
 
         elif defect_type == "ring_fracture":
             jitter = float(params.get("jitter_amplitude", intensity * 12.0))
-            polar_out, defect_mask_polar = synthesize_ring_fractures(
+            polar_out, blend_mask_polar, defect_mask_polar = synthesize_ring_fractures(
                 polar_img, rim_col,
                 seed=seed,
                 jitter_amplitude=jitter,
@@ -623,7 +634,7 @@ def generate(
 
     # Blend result — ring_fracture uses soft blend (Cell 8 of pipeline_ring)
     if defect_type == "ring_fracture":
-        mask_cart = from_polar(defect_mask_polar, center, max_radius, (orig_w, orig_h))
+        mask_cart = from_polar(blend_mask_polar, center, max_radius, (orig_w, orig_h))
         if len(mask_cart.shape) == 3:
             soft = mask_cart[:, :, 0].astype(np.float32) / 255.0
         else:

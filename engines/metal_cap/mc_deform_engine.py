@@ -125,6 +125,8 @@ def _jagged_warp(polar_img, max_radius, t_center, t_span, r_c, r_w,
     map_x = (COL - (env * jagged_f * s_amt)).astype(np.float32)
     map_y = ROW.astype(np.float32)
 
+    height = env * jagged_f * s_amt
+
     polar_deformed = cv2.remap(polar_img, map_x, map_y,
                                cv2.INTER_LANCZOS4, borderMode=cv2.BORDER_REFLECT)
 
@@ -299,7 +301,6 @@ def _sdxl_step(cv_result_rgb, mask_gray, ref_rgb, seed, prompt=None, negative_pr
               f"steps={s_steps}, ip_scale={ip_scale}, cn_scale={s_cn_scale}")
 
         with torch.inference_mode():
-            pipe.to("cuda" if torch.cuda.is_available() else "cpu")
             ai_out = pipe(
                 prompt=prompt or _PROMPT,
                 negative_prompt=negative_prompt or _NEG,

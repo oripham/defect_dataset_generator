@@ -324,6 +324,8 @@ def _batch_worker(job_id: str, payload: dict):
     mask_b64    = payload.get("mask_b64")
     ref_b64     = payload.get("ref_image_b64")
     anno_mode   = payload.get("annotation_mode", "bbox")
+    class_id    = int(payload.get("class_id", 0))
+    custom_folder = payload.get("output_folder", "").strip()
 
     p = PRODUCTS.get(product, {})
     data_root = str(p.get("data_dir", "")) if p else ""
@@ -337,7 +339,10 @@ def _batch_worker(job_id: str, payload: dict):
     import itertools
     from datetime import datetime
 
-    out_dir = RESULTS_ROOT / datetime.now().strftime("%Y%m%d_%H%M%S") / product / defect_type
+    if custom_folder:
+        out_dir = RESULTS_ROOT / custom_folder
+    else:
+        out_dir = RESULTS_ROOT / datetime.now().strftime("%Y%m%d_%H%M%S") / product / defect_type
     img_dir = out_dir / "images"
     lbl_dir = out_dir / "labels"
     dbg_dir = out_dir / "debug"
@@ -406,7 +411,7 @@ def _batch_worker(job_id: str, payload: dict):
                     mask_data = base64.b64decode(mask_b64_used)
                     mask_gray = cv2.imdecode(np.frombuffer(mask_data, np.uint8), cv2.IMREAD_GRAYSCALE)
                 _write_yolo_label(lbl_dir / (fname_stem + ".txt"),
-                                  mask_gray, res_bgr.shape[:2], class_id=0,
+                                  mask_gray, res_bgr.shape[:2], class_id=class_id,
                                   mode=anno_mode)
             except Exception:
                 pass
