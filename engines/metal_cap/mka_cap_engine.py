@@ -91,7 +91,7 @@ def _run_scratch(img_bgr: np.ndarray, mask_dir: str, params: dict, mask_b64: str
     alpha_mult = float(params.get("alpha_mult", 1.35))
     whiten_add = float(params.get("whiten_add", 120))
     mode       = str(params.get("mode", "auto"))
-    size       = float(params.get("scratch_size", 1.0))
+    size       = float(params.get("scratch_size", 2.5))
 
     mask = _resolve_mask(params, img_bgr, mask_dir, seed, incoming_mask_b64=mask_b64)
     if mask is None:
