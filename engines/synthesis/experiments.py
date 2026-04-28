@@ -540,7 +540,8 @@ def synth_scratch_lines(ok, mask, seed=0):
     return np.clip(out, 0, 255).astype(np.uint8)
 
 
-def synth_plastic_scuff(ok, mask, seed=0, alpha_mult=1.35, whiten_add=120, mode="auto", size=1.0):
+def synth_plastic_scuff(ok, mask, seed=0, alpha_mult=1.35, whiten_add=120, mode="auto", size=1.0,
+                        n_hairlines_range=(4, 10), thick_range=(1, 3), matte_strength=1.0):
     """
     Realistic plastic scratch: localized rough/matte patch with fine hairline
     scratches. Mimics real NG where surface reflections are disrupted.
@@ -586,7 +587,7 @@ def synth_plastic_scuff(ok, mask, seed=0, alpha_mult=1.35, whiten_add=120, mode=
     patch_alpha = np.clip(patch_alpha * mask_f, 0, 1)
 
     # ── 3. Subtle specular reduction (small blur, low blend — preserve detail) ──
-    compress = float(rng2.uniform(0.25, 0.40))
+    compress = float(rng2.uniform(0.25, 0.40)) * matte_strength
     for c in range(3):
         channel_mean = cv2.GaussianBlur(out[:, :, c], (0, 0), 1.8)
         out[:, :, c] = out[:, :, c] * (1 - patch_alpha * compress) + \
@@ -597,18 +598,18 @@ def synth_plastic_scuff(ok, mask, seed=0, alpha_mult=1.35, whiten_add=120, mode=
     noise_coarse = cv2.GaussianBlur(noise_coarse, (0, 0), 5.0)
     noise_coarse = (noise_coarse - noise_coarse.mean()) / (noise_coarse.std() + 1e-6)
 
-    tex_amp = float(rng2.uniform(5, 12)) * float(alpha_mult)
+    tex_amp = float(rng2.uniform(5, 12)) * float(alpha_mult) * matte_strength
     for c in range(3):
         out[:, :, c] = out[:, :, c] + noise_coarse * tex_amp * patch_alpha
 
     # ── 5. Slight whitening in damage area ──
-    whiten = float(rng2.uniform(8, 20)) * float(alpha_mult)
+    whiten = float(rng2.uniform(8, 20)) * float(alpha_mult) * matte_strength
     for c in range(3):
         out[:, :, c] = out[:, :, c] + whiten * patch_alpha
 
     # ── 6. Fine hairline scratches radiating from spot ──
     scratch_layer = np.zeros((H, W), dtype=np.float32)
-    n_hairlines = int(rng2.integers(4, 10))
+    n_hairlines = int(rng2.integers(n_hairlines_range[0], n_hairlines_range[1]))
     base_angle = float(rng2.uniform(0, np.pi))
 
     for i in range(n_hairlines):
@@ -629,7 +630,7 @@ def synth_plastic_scuff(ok, mask, seed=0, alpha_mult=1.35, whiten_add=120, mode=
         px_arr = np.clip(sx + ca * length * t + (-sa) * wobble, 0, W - 1).astype(np.int32)
         py_arr = np.clip(sy + sa * length * t + ca * wobble, 0, H - 1).astype(np.int32)
 
-        thick = int(rng2.integers(1, 3))
+        thick = int(rng2.integers(thick_range[0], thick_range[1]))
         for j in range(n_pts - 1):
             if float(rng2.random()) < 0.06:
                 continue
