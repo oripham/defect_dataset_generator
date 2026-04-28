@@ -88,7 +88,7 @@ def _run_scratch(img_bgr: np.ndarray, mask_dir: str, params: dict, mask_b64: str
     if not _HAS_EXP:
         return None, None, "experiments not available"
     seed       = int(params.get("seed", 42))
-    alpha_mult = float(params.get("alpha_mult", 1.35))
+    alpha_mult = float(params.get("alpha_mult", 0.8))
     whiten_add = float(params.get("whiten_add", 120))
     mode       = str(params.get("mode", "auto"))
     size       = float(params.get("scratch_size", 2.5))
@@ -97,8 +97,7 @@ def _run_scratch(img_bgr: np.ndarray, mask_dir: str, params: dict, mask_b64: str
     if mask is None:
         return None, None, "No mask found — please draw a mask on the image"
 
-    result = _exp.apply_plastic_matte(img_bgr, mask, seed=seed, strength=0.6)
-    result, defect_mask = _exp.synth_plastic_scuff(result, mask, seed=seed,
+    result, defect_mask = _exp.synth_plastic_scuff(img_bgr, mask, seed=seed,
                                       alpha_mult=alpha_mult,
                                       whiten_add=whiten_add,
                                       mode=mode, size=size)
