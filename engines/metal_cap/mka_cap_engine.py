@@ -42,6 +42,47 @@ from .plastic_flow_engine import generate as _plastic_flow_generate
 from ..synthesis.mka_can_mieng import synth_can_mieng as _synth_can_mieng
 
 
+# ── MKA-specific product bbox detection ──────────────────────────────────────
+
+def _detect_mka_bbox(img_bgr: np.ndarray) -> tuple:
+    """Detect MKA plastic cap bbox by scanning from center outward for dark edges."""
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY) if len(img_bgr.shape) == 3 else img_bgr
+    h, w = gray.shape
+    threshold = 40
+    n_samples = 20
+
+    left_edges, right_edges, top_edges, bottom_edges = [], [], [], []
+    for offset in range(-n_samples, n_samples + 1, 2):
+        row = h // 2 + offset
+        if 0 <= row < h:
+            for x in range(w // 2, 0, -1):
+                if gray[row, x] < threshold:
+                    left_edges.append(x)
+                    break
+            for x in range(w // 2, w):
+                if gray[row, x] < threshold:
+                    right_edges.append(x)
+                    break
+        col = w // 2 + offset
+        if 0 <= col < w:
+            for y in range(h // 2, 0, -1):
+                if gray[y, col] < threshold:
+                    top_edges.append(y)
+                    break
+            for y in range(h // 2, h):
+                if gray[y, col] < threshold:
+                    bottom_edges.append(y)
+                    break
+
+    x0 = int(np.median(left_edges)) if left_edges else int(w * 0.3)
+    x1 = int(np.median(right_edges)) if right_edges else int(w * 0.7)
+    y0 = int(np.median(top_edges)) if top_edges else int(h * 0.15)
+    y1 = int(np.median(bottom_edges)) if bottom_edges else int(h * 0.75)
+    margin_x = int((x1 - x0) * 0.10)
+    margin_y = int((y1 - y0) * 0.10)
+    return (x0 + margin_x, y0 + margin_y, x1 - margin_x, y1 - margin_y)
+
+
 # ── Mask helpers ──────────────────────────────────────────────────────────────
 
 def _pick_mask(mask_dir: str) -> np.ndarray | None:
@@ -52,9 +93,10 @@ def _pick_mask(mask_dir: str) -> np.ndarray | None:
     return cv2.imread(_random.choice(files), cv2.IMREAD_GRAYSCALE)
 
 
-def _auto_place_mask(mask_src: np.ndarray, img_bgr: np.ndarray, seed: int) -> np.ndarray:
+def _auto_place_mask(mask_src: np.ndarray, img_bgr: np.ndarray, seed: int,
+                     product_bbox=None) -> np.ndarray:
     rng2  = np.random.default_rng(seed)
-    bbox  = _exp.detect_product_bbox(img_bgr)
+    bbox  = product_bbox if product_bbox else _exp.detect_product_bbox(img_bgr)
     shape = _exp.extract_defect_shape(mask_src)
     if shape is None:
         return mask_src
@@ -79,7 +121,8 @@ def _resolve_mask(params: dict, img_bgr: np.ndarray, mask_dir: str, seed: int,
     if mask is None:
         return None
     mask = cv2.resize(mask, (img_bgr.shape[1], img_bgr.shape[0]), interpolation=cv2.INTER_NEAREST)
-    return _auto_place_mask(mask, img_bgr, seed)
+    return _auto_place_mask(mask, img_bgr, seed,
+                            product_bbox=params.get("product_bbox"))
 
 
 # ── Synthesis functions ───────────────────────────────────────────────────────
@@ -115,7 +158,7 @@ def _run_dent(img_bgr: np.ndarray, _mask_dir: str, params: dict):
     seed      = int(params.get("seed", 42))
     intensity = float(params.get("intensity", 0.7))
 
-    bbox  = _exp.detect_product_bbox(img_bgr)
+    bbox  = params.get("product_bbox") or _exp.detect_product_bbox(img_bgr)
     patch = _exp.gen_dent_patch(np.random.default_rng(seed), bbox)
     mask  = _exp.place_mask_random(patch, bbox, img_bgr.shape[:2],
                                    np.random.default_rng(seed + 1), rotate=True)
@@ -182,7 +225,7 @@ def _run_dark_spots(img_bgr: np.ndarray, _mask_dir: str, params: dict):
     if not _HAS_EXP:
         return None, None, "experiments not available"
 
-    bbox = _exp.detect_product_bbox(img_bgr)
+    bbox = params.get("product_bbox") or _exp.detect_product_bbox(img_bgr)
     n_min = int(params.get("n_spots_min", 1))
     n_max = int(params.get("n_spots_max", 3))
     r_min = int(params.get("r_min", 2))
@@ -255,6 +298,9 @@ def generate(
     fn, defect_folder = entry
     img_rgb = decode_b64(base_image_b64)
     img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+
+    if "product_bbox" not in params:
+        params["product_bbox"] = _detect_mka_bbox(img_bgr)
 
     root     = data_root or _MKA_ROOT
     import unicodedata

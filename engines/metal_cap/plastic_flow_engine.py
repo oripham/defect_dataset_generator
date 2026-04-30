@@ -583,7 +583,7 @@ def _cv_synthesize(img_bgr: np.ndarray, params: dict) -> tuple[np.ndarray, np.nd
     seed = int(params.get("seed", 42))
     intensity = float(params.get("intensity", 0.6))
 
-    bbox = _exp.detect_product_bbox(img_bgr)
+    bbox = params.get("product_bbox") or _exp.detect_product_bbox(img_bgr)
     x, y, w, h = _bbox_to_xywh(bbox)
     if w <= 0 or h <= 0:
         # fallback: use whole image

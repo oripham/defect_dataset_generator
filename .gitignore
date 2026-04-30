@@ -123,9 +123,14 @@ test_scenario.py
 *.ps1
 scripts/draw_mask_tool.py
 scripts/small_scratch_experiment.py
-""  
-"!/eval/"  
-"!/eval/**"  
-""  
-"!/eval/"  
-"!/eval/**"  
+
+# ── Eval directory (whitelist scripts, ignore output/data) ──
+!/eval/
+!/eval/**
+eval/output/
+eval/*.pt
+eval/*.pth
+eval/*.md
+eval/__pycache__/
+eval/fix_test/
+eval/mka_bbox_diag.png

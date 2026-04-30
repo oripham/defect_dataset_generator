@@ -165,6 +165,9 @@ def _cv_step(img_rgb: np.ndarray, params: dict):
 
     gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
     cx, cy, radius = _detect_circle(gray)
+    cx = int(params.get("cx_override", cx))
+    cy = int(params.get("cy_override", cy))
+    radius = int(params.get("radius_override", radius))
     center     = (cx, cy)
     max_radius = int(radius * 1.3)
 

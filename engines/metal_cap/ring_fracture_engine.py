@@ -170,12 +170,15 @@ def _cv_step(img_rgb: np.ndarray, params: dict):
 
     gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
     cx, cy, radius = _detect_circle(gray)
+    cx = int(params.get("cx_override", cx))
+    cy = int(params.get("cy_override", cy))
+    radius = int(params.get("radius_override", radius))
     center     = (cx, cy)
     max_radius = int(radius * 1.3)
 
     polar_img  = _to_polar(img_rgb, center, max_radius)
     polar_gray = cv2.cvtColor(polar_img, cv2.COLOR_RGB2GRAY).astype(np.float32)
-    r_col      = _find_rim_col(polar_gray)
+    r_col      = int(params.get("r_col_override", _find_rim_col(polar_gray)))
 
     p_distorted, p_blend_mask, p_defect_mask, p_glints = _synthesize_ring_fractures(
         polar_img, r_ring_col=r_col, seed=seed, jitter_amplitude=jitter,
